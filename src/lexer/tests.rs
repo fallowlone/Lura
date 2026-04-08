@@ -89,3 +89,22 @@ fn test_empty_block() {
         Token::RParen,
     ]);
 }
+
+#[test]
+fn test_lbracket_rbracket() {
+    let mut lexer = Lexer::new("H1[intro](Hello)");
+    let tokens = lexer.tokenize();
+    assert!(tokens.contains(&Token::LBracket));
+    assert!(tokens.contains(&Token::RBracket));
+}
+
+#[test]
+fn test_block_id_token_sequence() {
+    let mut lexer = Lexer::new("P[my_id](Hello)");
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens[0], Token::Ident("P".into()));
+    assert_eq!(tokens[1], Token::LBracket);
+    assert_eq!(tokens[2], Token::Ident("my_id".into()));
+    assert_eq!(tokens[3], Token::RBracket);
+    assert_eq!(tokens[4], Token::LParen);
+}

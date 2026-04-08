@@ -112,12 +112,25 @@ impl Lexer {
     // Look ahead: is the word starting at current pos followed by ( ?
     fn is_block_start(&self) -> bool {
         let mut i = self.pos;
+        // skip ident chars
         while matches!(self.input.get(i), Some(c) if c.is_alphanumeric() || *c == '_') {
             i += 1;
         }
-        // skip whitespace between word and (
+        // skip whitespace
         while matches!(self.input.get(i), Some(c) if c.is_whitespace()) {
             i += 1;
+        }
+        // skip optional [id]
+        if matches!(self.input.get(i), Some('[')) {
+            while matches!(self.input.get(i), Some(&c) if c != ']') {
+                i += 1;
+            }
+            if matches!(self.input.get(i), Some(']')) {
+                i += 1;
+            }
+            while matches!(self.input.get(i), Some(c) if c.is_whitespace()) {
+                i += 1;
+            }
         }
         matches!(self.input.get(i), Some('('))
     }
@@ -221,6 +234,14 @@ impl Lexer {
                         self.brace_depth += 1;
                         self.mode = Mode::Attrs;
                         Token::LBrace
+                    }
+                    Some('[') => {
+                        self.advance();
+                        Token::LBracket
+                    }
+                    Some(']') => {
+                        self.advance();
+                        Token::RBracket
                     }
                     Some(c) if c.is_alphabetic() => Token::Ident(self.read_ident()),
                     _ => { self.advance(); self.next_token() }
