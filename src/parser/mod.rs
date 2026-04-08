@@ -134,9 +134,20 @@ impl Parser {
         Ok(attrs)
     }
 
-    // Parse a block: IDENT({attrs} content) or IDENT(content)
+    // Parse a block: IDENT({attrs} content) or IDENT(content) or IDENT[id]({attrs} content)
     fn parse_block(&mut self) -> Result<Block, String> {
         let kind = self.expect_ident()?;
+
+        // Check for optional [id]
+        let id = if self.current() == &Token::LBracket {
+            self.advance()?;
+            let id_str = self.expect_ident()?;
+            self.expect(&Token::RBracket)?;
+            id_str
+        } else {
+            String::new()
+        };
+
         self.expect(&Token::LParen)?;
 
         let attrs = if self.current() == &Token::LBrace {
@@ -149,7 +160,7 @@ impl Parser {
 
         self.expect(&Token::RParen)?;
 
-        Ok(Block { kind, id: String::new(), attrs, content })
+        Ok(Block { kind, id, attrs, content })
     }
 
     // Parse content: text or nested blocks until RParen

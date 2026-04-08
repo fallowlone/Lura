@@ -94,3 +94,9 @@ PAGE(
     assert_eq!(doc.blocks.len(), 1);
     assert_eq!(doc.blocks[0].kind, "PAGE");
 }
+
+#[test]
+fn test_explicit_block_id_parsed() {
+    let doc = parse("H1[intro](Hello)");
+    assert_eq!(doc.blocks[0].id, "intro");
+}
