@@ -47,6 +47,7 @@ fn main() {
                 process::exit(1);
             });
             let doc = parser::resolver::resolve(doc);
+            let doc = parser::id::assign_ids(doc);
 
             let result = match format.as_str() {
                 "json" => renderer::json::render(&doc),

@@ -32,6 +32,7 @@ fn render_block(block: &Block, indent: usize) -> String {
     let pad = "  ".repeat(indent);
     let mut out = format!("{}{{\n", pad);
     out.push_str(&format!("{}  \"kind\": \"{}\",\n", pad, block.kind));
+    out.push_str(&format!("{}  \"id\": \"{}\",\n", pad, block.id));
 
     // attrs
     out.push_str(&format!("{}  \"attrs\": ", pad));
