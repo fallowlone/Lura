@@ -17,7 +17,7 @@ Folio stores semantic structure — headings, paragraphs, tables — not pixel p
 
 ## Format
 
-A `.folio` file is plain text. Any editor works.
+A `.fol` file is plain text. Any editor works.
 
 ```
 STYLES({
