@@ -53,8 +53,8 @@ fn serialize_value(v: &Value) -> String {
         Value::Str(s) => s.clone(),
         Value::Number(n) => n.to_string(),
         Value::Unit(n, u) => format!("{}{}", n, u),
-        Value::Var(s) => format!("#{}", s),
-        Value::Color(s) => format!("#{}", s),
+        Value::Var(s) => format!("var:#{}", s),
+        Value::Color(s) => format!("color:#{}", s),
     }
 }
 

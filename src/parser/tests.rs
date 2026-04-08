@@ -97,12 +97,6 @@ PAGE(
 }
 
 #[test]
-fn test_explicit_block_id_parsed() {
-    let doc = parse("H1[intro](Hello)");
-    assert_eq!(doc.blocks[0].id, "intro");
-}
-
-#[test]
 fn test_explicit_id_preserved() {
     let doc = parse("H1[intro](Hello)");
     assert_eq!(doc.blocks[0].id, "intro");
