@@ -1,0 +1,9 @@
+STYLES({
+  #accent: #3498DB
+})
+
+PAGE(
+  H1({color: #accent} Hello from Folio)
+  P(This is a sample document in the .fol format.)
+  P(It is smaller, readable, and git-friendly.)
+)
