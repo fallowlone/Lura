@@ -1,4 +1,4 @@
-use super::{ast::*, resolver, Parser};
+use super::{ast::*, id, resolver, Parser};
 use crate::lexer::Lexer;
 
 fn parse(input: &str) -> Document {
@@ -6,7 +6,8 @@ fn parse(input: &str) -> Document {
     let tokens = lexer.tokenize();
     let mut parser = Parser::new(tokens);
     let doc = parser.parse().expect("parse failed");
-    resolver::resolve(doc)
+    let doc = resolver::resolve(doc);
+    id::assign_ids(doc)
 }
 
 #[test]
@@ -99,4 +100,44 @@ PAGE(
 fn test_explicit_block_id_parsed() {
     let doc = parse("H1[intro](Hello)");
     assert_eq!(doc.blocks[0].id, "intro");
+}
+
+#[test]
+fn test_explicit_id_preserved() {
+    let doc = parse("H1[intro](Hello)");
+    assert_eq!(doc.blocks[0].id, "intro");
+}
+
+#[test]
+fn test_auto_id_generated() {
+    let doc = parse("P(Hello)");
+    assert!(!doc.blocks[0].id.is_empty(), "auto ID should be non-empty");
+    assert!(doc.blocks[0].id.starts_with("p_"), "auto ID should start with kind prefix");
+}
+
+#[test]
+fn test_auto_id_is_deterministic() {
+    let doc1 = parse("P(Hello)");
+    let doc2 = parse("P(Hello)");
+    assert_eq!(doc1.blocks[0].id, doc2.blocks[0].id);
+}
+
+#[test]
+fn test_different_content_different_id() {
+    let doc1 = parse("P(Hello)");
+    let doc2 = parse("P(World)");
+    assert_ne!(doc1.blocks[0].id, doc2.blocks[0].id);
+}
+
+#[test]
+fn test_nested_blocks_all_get_ids() {
+    let doc = parse("PAGE(\n  H1(Title)\n  P(Body)\n)");
+    let page = &doc.blocks[0];
+    assert!(!page.id.is_empty());
+    if let Content::Blocks(children) = &page.content {
+        assert!(!children[0].id.is_empty());
+        assert!(!children[1].id.is_empty());
+    } else {
+        panic!("Expected Blocks content");
+    }
 }

@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod id;
 pub mod resolver;
 
 #[cfg(test)]
