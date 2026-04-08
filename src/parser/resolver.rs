@@ -22,7 +22,7 @@ fn resolve_block(block: Block, vars: &HashMap<String, Value>) -> Block {
         other => other,
     };
 
-    Block { kind: block.kind, attrs, content }
+    Block { kind: block.kind, id: block.id, attrs, content }
 }
 
 fn resolve_value(value: Value, vars: &HashMap<String, Value>) -> Value {

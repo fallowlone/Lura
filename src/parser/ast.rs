@@ -19,6 +19,7 @@ pub enum Content {
 #[derive(Debug, Clone)]
 pub struct Block {
     pub kind: String,                    // "H1", "P", "PAGE", ...
+    pub id: String,                      // empty = not yet assigned
     pub attrs: HashMap<String, Value>,   // key → value
     pub content: Content,
 }

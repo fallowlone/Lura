@@ -149,7 +149,7 @@ impl Parser {
 
         self.expect(&Token::RParen)?;
 
-        Ok(Block { kind, attrs, content })
+        Ok(Block { kind, id: String::new(), attrs, content })
     }
 
     // Parse content: text or nested blocks until RParen
