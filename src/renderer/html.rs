@@ -455,13 +455,24 @@ fn sanitize_inline_css_fragment(s: &str) -> String {
         .collect()
 }
 
+/// Convert a Value to a CSS length/color/string fragment.
+/// Bare `Value::Number` is treated as a point value — appends `pt`.
 fn value_to_css_inline(val: &Value) -> String {
     match val {
         Value::Str(s) => sanitize_inline_css_fragment(s),
-        Value::Number(n) => format!("{}", n),
+        Value::Number(n) => format!("{}pt", n),
         Value::Unit(n, u) => format!("{}{}", n, u),
         Value::Var(s) => format!("var(--fol-{})", sanitize_css_var_name(s)),
         Value::Color(s) => format!("#{}", sanitize_hex_color(s)),
+    }
+}
+
+/// Convert a Value to a CSS unitless number (for font-weight etc.).
+/// Does not append a unit to bare `Value::Number`.
+fn value_to_css_unitless(val: &Value) -> String {
+    match val {
+        Value::Number(n) => format!("{}", n),
+        other => value_to_css_inline(other),
     }
 }
 
@@ -476,7 +487,7 @@ fn build_inline_style(block: &Block) -> String {
         parts.push(format!("font-size: {}", value_to_css_inline(val)));
     }
     if let Some(val) = block.attrs.get("font-weight") {
-        parts.push(format!("font-weight: {}", value_to_css_inline(val)));
+        parts.push(format!("font-weight: {}", value_to_css_unitless(val)));
     }
     if let Some(val) = block.attrs.get("background").or_else(|| block.attrs.get("background-color")) {
         parts.push(format!("background: {}", value_to_css_inline(val)));
