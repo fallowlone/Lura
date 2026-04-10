@@ -62,7 +62,7 @@ impl Lexer {
 
     fn read_ident(&mut self) -> String {
         let mut s = String::new();
-        while matches!(self.current(), Some(c) if c.is_alphanumeric() || c == '_') {
+        while matches!(self.current(), Some(c) if c.is_alphanumeric() || c == '_' || c == '-') {
             s.push(self.advance().unwrap());
         }
         s
@@ -109,12 +109,24 @@ impl Lexer {
         Token::Hash(s)
     }
 
-    // Look ahead: is the word starting at current pos followed by ( ?
+    // Look ahead: is the word starting at current pos an ALL-CAPS block name followed by ( ?
+    // Block names in FOL are always uppercase: H1, TABLE, CELL, GRID, LIST, ITEM, etc.
+    // This prevents German words like "Informationen (" from being parsed as blocks.
     fn is_block_start(&self) -> bool {
         let mut i = self.pos;
+        let start = i;
         // skip ident chars
-        while matches!(self.input.get(i), Some(c) if c.is_alphanumeric() || *c == '_') {
+        while matches!(self.input.get(i), Some(c) if c.is_alphanumeric() || *c == '_' || *c == '-') {
             i += 1;
+        }
+        if i == start {
+            return false; // empty ident
+        }
+        // ident must be all-uppercase (block names: H1, TABLE, CELL, …)
+        let all_upper = self.input[start..i].iter()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_' || *c == '-');
+        if !all_upper {
+            return false;
         }
         // skip whitespace
         while matches!(self.input.get(i), Some(c) if c.is_whitespace()) {
@@ -135,13 +147,29 @@ impl Lexer {
         matches!(self.input.get(i), Some('('))
     }
 
-    // Read raw text content until ) or nested block (
+    // Read raw text content until unbalanced ) or nested block name
     fn read_content(&mut self) -> Token {
         let mut s = String::new();
+        let mut paren_depth = 0usize;
         while let Some(c) = self.current() {
             match c {
-                ')' | '(' | '#' => break,
-                _ if c.is_alphabetic() && self.is_block_start() => break,
+                '\\' => {
+                    self.advance();
+                    if let Some(c) = self.advance() {
+                        s.push(c);
+                    }
+                }
+                ')' if paren_depth == 0 => break,
+                ')' => {
+                    paren_depth -= 1;
+                    s.push(self.advance().unwrap());
+                }
+                '(' => {
+                    paren_depth += 1;
+                    s.push(self.advance().unwrap());
+                }
+                '#' if paren_depth == 0 => break,
+                _ if c.is_alphabetic() && paren_depth == 0 && self.is_block_start() => break,
                 _ => { s.push(self.advance().unwrap()); }
             }
         }
@@ -162,10 +190,6 @@ impl Lexer {
                             self.mode = Mode::Normal;
                         }
                         Token::RParen
-                    }
-                    Some('(') => {
-                        self.mode = Mode::Normal;
-                        self.next_token()
                     }
                     Some(c) if c.is_alphabetic() && self.is_block_start() => {
                         self.mode = Mode::Normal;

@@ -5,3 +5,15 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+fontdb = "0.23.0"
+id-arena = "2.3.0"
+pdf-writer = "0.14.0"
+printpdf = "0.8.2"
+taffy = "0.10.0"
+textwrap = "0.16.1"
+ttf-parser = "0.24"
+unicode-linebreak = "0.1.5"
+
+[lib]
+name = "folio"
+crate-type = ["cdylib", "rlib"]

@@ -21,11 +21,18 @@ pub enum Commands {
     /// Convert a .fol file to JSON or plain text
     Convert {
         file: PathBuf,
-        /// Output format: json or text (default: json)
+        /// Output format: json, text, html, pdf (default: json)
         #[arg(long, default_value = "json")]
         format: String,
         /// Write output to file instead of stdout
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Render a .fol file to PDF using Engine v2 (taffy layout, unicode line-break)
+    Render {
+        file: PathBuf,
+        /// Output PDF file (default: output.pdf)
+        #[arg(long, default_value = "output.pdf")]
+        output: PathBuf,
     },
 }

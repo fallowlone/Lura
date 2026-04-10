@@ -99,6 +99,8 @@ impl Parser {
     fn parse_value(&mut self) -> Result<Value, String> {
         match self.advance()? {
             Token::String(s) => Ok(Value::Str(s)),
+            // Bare identifier used as string value: {type: ordered}, {align: center}
+            Token::Ident(s) => Ok(Value::Str(s)),
             Token::Number(n) => Ok(Value::Number(n)),
             Token::Unit(n, u) => Ok(Value::Unit(n, u)),
             Token::Hash(s) => {
