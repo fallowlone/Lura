@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use fontdb::{Database, Family, Query, Weight, Style as FontdbStyle, Stretch};
-use super::styles::{FontWeight, FontStyle};
 use super::layout::MM_TO_PT;
 
 // ─── Глобальный кеш метрик ────────────────────────────────────────────────────
@@ -85,45 +84,6 @@ pub fn char_advance_pt(ch: char, font_size_pt: f32, bold: bool) -> f32 {
 /// Возвращает ширину строки в pt.
 pub fn text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> f32 {
     text.chars().map(|c| char_advance_pt(c, font_size_pt, bold)).sum()
-}
-
-// ─── Font Database ────────────────────────────────────────────────────────────
-
-pub struct FontManager {
-    pub db: Database,
-}
-
-impl FontManager {
-    pub fn load() -> Self {
-        let mut db = Database::new();
-        db.load_system_fonts();
-        Self { db }
-    }
-
-    pub fn find_font(
-        &self,
-        family: &str,
-        weight: FontWeight,
-        style: FontStyle,
-    ) -> Option<fontdb::ID> {
-        let weight_val = match weight {
-            FontWeight::Bold   => Weight::BOLD,
-            FontWeight::Normal => Weight::NORMAL,
-        };
-        let style_val = match style {
-            FontStyle::Italic => FontdbStyle::Italic,
-            FontStyle::Normal => FontdbStyle::Normal,
-        };
-
-        let query = Query {
-            families: &[Family::Name(family), Family::SansSerif],
-            weight: weight_val,
-            style: style_val,
-            stretch: Stretch::Normal,
-        };
-
-        self.db.query(&query)
-    }
 }
 
 // ─── Текстовые строки ─────────────────────────────────────────────────────────
