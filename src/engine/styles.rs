@@ -93,27 +93,31 @@ pub struct ResolvedStyles {
     /// Колонный gap в mm
     pub column_gap: f32,
     pub row_gap: f32,
+
+    /// flex-grow для ячеек таблицы (управляет пропорциями колонок)
+    pub flex_grow: f32,
 }
 
 impl Default for ResolvedStyles {
     fn default() -> Self {
         Self {
-            font_size: 12.0,
+            font_size: 10.0,
             font_family: "Helvetica".to_string(),
             font_weight: FontWeight::Normal,
             font_style: FontStyle::Normal,
             color: Color::BLACK,
             background: None,
-            margin: EdgeInsets::new(0.0, 0.0, 4.0, 0.0),  // bottom 4mm
+            margin: EdgeInsets::new(0.0, 0.0, 2.5, 0.0),
             padding: EdgeInsets::zero(),
             width: None,
             height: None,
-            line_height: 1.4,
+            line_height: 1.3,
             text_align: TextAlign::Left,
             display: Display::Block,
             grid_columns: None,
             column_gap: 4.0,
             row_gap: 2.0,
+            flex_grow: 0.0,
         }
     }
 }
@@ -124,27 +128,28 @@ impl ResolvedStyles {
         let mut s = Self::default();
         match kind {
             BoxKind::Heading(1) => {
-                s.font_size = 18.0;
+                s.font_size = 14.0;
                 s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(0.0, 0.0, 5.0, 0.0);
+                s.margin = EdgeInsets::new(0.0, 0.0, 4.0, 0.0);
             }
             BoxKind::Heading(2) => {
-                s.font_size = 12.0;
+                s.font_size = 10.5;
                 s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(6.0, 0.0, 3.0, 0.0);
+                s.margin = EdgeInsets::new(5.0, 0.0, 2.0, 0.0);
             }
             BoxKind::Heading(3) => {
-                s.font_size = 11.0;
+                s.font_size = 10.0;
                 s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(4.0, 0.0, 2.0, 0.0);
+                s.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Heading(_) => {
-                s.font_size = 11.0;
+                s.font_size = 10.0;
                 s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(3.0, 0.0, 2.0, 0.0);
+                s.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Cell => {
-                s.padding = EdgeInsets::uniform(2.0);
+                s.padding = EdgeInsets::new(1.5, 2.0, 1.5, 2.0);
+                s.flex_grow = 1.0;
             }
             BoxKind::Code => {
                 s.font_family = "Courier".to_string();
