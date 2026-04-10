@@ -1,30 +1,41 @@
-use crate::parser::ast::{Block, Content, Document, Value};
+use crate::parser::ast::{Content, Document, NodeId, Value};
 
 /// Assign IDs to all blocks in the document.
 /// Explicit IDs (non-empty block.id) are kept as-is.
 /// Empty IDs are filled with a FNV-1a hash of the block's content.
 /// Processing is bottom-up: children receive IDs before their parent.
 pub fn assign_ids(mut doc: Document) -> Document {
-    for block in &mut doc.blocks {
-        assign_block_id(block);
+    for root in doc.root_ids().to_vec() {
+        assign_block_id(root, &mut doc);
     }
     doc
 }
 
-fn assign_block_id(block: &mut Block) {
-    // Process children first (bottom-up)
-    if let Content::Blocks(ref mut children) = block.content {
-        for child in children.iter_mut() {
-            assign_block_id(child);
+fn assign_block_id(root: NodeId, doc: &mut Document) {
+    // Итеративный post-order: (node, visited_children)
+    let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
+
+    while let Some((node_id, visited)) = stack.pop() {
+        if !visited {
+            stack.push((node_id, true));
+            if let Content::Children(children) = &doc.block(node_id).content {
+                for &child_id in children.iter().rev() {
+                    stack.push((child_id, false));
+                }
+            }
+            continue;
         }
-    }
-    // Assign this block's ID if not set explicitly
-    if block.id.is_empty() {
-        block.id = compute_auto_id(block);
+
+        if doc.block(node_id).id.is_empty() {
+            let new_id = compute_auto_id(node_id, doc);
+            doc.block_mut(node_id).id = new_id;
+        }
     }
 }
 
-fn compute_auto_id(block: &Block) -> String {
+fn compute_auto_id(node_id: NodeId, doc: &Document) -> String {
+    let block = doc.block(node_id);
+
     // Build sorted attrs string: "key=value,key=value"
     let mut attr_pairs: Vec<String> = block.attrs.iter()
         .map(|(k, v)| format!("{}={}", k, serialize_value(v)))
@@ -35,9 +46,12 @@ fn compute_auto_id(block: &Block) -> String {
     // Build content string
     let content_str = match &block.content {
         Content::Text(s) => s.clone(),
-        Content::Blocks(children) => {
+        Content::Children(children) => {
             // Children already have IDs (bottom-up processing)
-            children.iter().map(|c| c.id.as_str()).collect::<Vec<_>>().join(",")
+            children.iter()
+                .map(|child_id| doc.block(*child_id).id.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
         }
         Content::Empty => String::new(),
     };

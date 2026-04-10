@@ -66,29 +66,22 @@ fn main() {
             let doc = parser::id::assign_ids(doc);
 
             if format == "pdf" {
-                match renderer::pdf::render(&doc) {
-                    Ok(pdf_data) => {
-                        match output {
-                            Some(path) => {
-                                fs::write(&path, &pdf_data).unwrap_or_else(|e| {
-                                    eprintln!("error: could not write to {}: {e}", path.display());
-                                    process::exit(1);
-                                });
-                            }
-                            None => {
-                                // Default for binary format without output file
-                                let def_path = "output.pdf";
-                                fs::write(def_path, &pdf_data).unwrap_or_else(|e| {
-                                    eprintln!("error: could not write to {def_path}: {e}");
-                                    process::exit(1);
-                                });
-                                println!("PDF exported successfully to {def_path}");
-                            }
-                        }
+                let pdf_data = engine::render_pdf(&doc);
+                match output {
+                    Some(path) => {
+                        fs::write(&path, &pdf_data).unwrap_or_else(|e| {
+                            eprintln!("error: could not write to {}: {e}", path.display());
+                            process::exit(1);
+                        });
                     }
-                    Err(e) => {
-                        eprintln!("error: failed to generate PDF: {e}");
-                        process::exit(1);
+                    None => {
+                        // Default for binary format without output file
+                        let def_path = "output.pdf";
+                        fs::write(def_path, &pdf_data).unwrap_or_else(|e| {
+                            eprintln!("error: could not write to {def_path}: {e}");
+                            process::exit(1);
+                        });
+                        println!("PDF exported successfully to {def_path}");
                     }
                 }
                 return;

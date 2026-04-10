@@ -6,7 +6,7 @@ pub mod resolver;
 mod tests;
 
 use std::collections::HashMap;
-use ast::{Block, Content, Document, Value};
+use ast::{Block, Content, Document, NodeId, Value};
 use crate::lexer::token::Token;
 
 pub struct Parser {
@@ -50,7 +50,8 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Document, String> {
         let mut vars = HashMap::new();
-        let mut blocks = Vec::new();
+        let mut arena = Vec::new();
+        let mut roots = Vec::new();
 
         while self.current() != &Token::Eof {
             match self.current().clone() {
@@ -59,13 +60,13 @@ impl Parser {
                     vars.extend(style_vars);
                 }
                 Token::Ident(_) => {
-                    blocks.push(self.parse_block()?);
+                    roots.push(self.parse_block(&mut arena)?);
                 }
                 _ => { self.advance()?; }
             }
         }
 
-        Ok(Document { vars, blocks })
+        Ok(Document::from_parts(vars, arena, roots))
     }
 
     // Parse STYLES({ #key: value, ... }) → HashMap
@@ -138,7 +139,7 @@ impl Parser {
     }
 
     // Parse a block: IDENT({attrs} content) or IDENT(content) or IDENT[id]({attrs} content)
-    fn parse_block(&mut self) -> Result<Block, String> {
+    fn parse_block(&mut self, arena: &mut Vec<Block>) -> Result<NodeId, String> {
         let kind = self.expect_ident()?;
 
         // Check for optional [id]
@@ -159,15 +160,17 @@ impl Parser {
             HashMap::new()
         };
 
-        let content = self.parse_content()?;
+        let content = self.parse_content(arena)?;
 
         self.expect(&Token::RParen)?;
 
-        Ok(Block { kind, id, attrs, content })
+        let node_id = arena.len();
+        arena.push(Block { kind, id, attrs, content });
+        Ok(node_id)
     }
 
     // Parse content: text or nested blocks until RParen
-    fn parse_content(&mut self) -> Result<Content, String> {
+    fn parse_content(&mut self, arena: &mut Vec<Block>) -> Result<Content, String> {
         match self.current().clone() {
             Token::RParen => Ok(Content::Empty),
             Token::Text(s) => {
@@ -184,12 +187,12 @@ impl Parser {
                             self.parse_styles()?;
                         }
                         Token::Ident(_) => {
-                            blocks.push(self.parse_block()?);
+                            blocks.push(self.parse_block(arena)?);
                         }
                         _ => { self.advance()?; }
                     }
                 }
-                Ok(Content::Blocks(blocks))
+                Ok(Content::Children(blocks))
             }
             _ => {
                 self.advance()?;

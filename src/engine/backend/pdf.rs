@@ -14,9 +14,18 @@
 /// Конвертация: pdf_y = page_height - our_y
 
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
-use crate::engine::paginate::{DrawCommand, PageTree};
+use crate::engine::paginate::PageTree;
+use super::painter::{from_page_tree, PaintDocument, PainterBackend, PainterCommand};
 
 pub fn render(page_tree: &PageTree) -> Vec<u8> {
+    let doc = from_page_tree(page_tree);
+    PdfBackend.render_document(&doc)
+}
+
+pub struct PdfBackend;
+
+impl PainterBackend for PdfBackend {
+    fn render_document(&self, doc: &PaintDocument) -> Vec<u8> {
     let mut pdf = Pdf::new();
     let mut alloc = RefAlloc::new(1);
 
@@ -28,7 +37,7 @@ pub fn render(page_tree: &PageTree) -> Vec<u8> {
     let mut page_ids:    Vec<Ref> = Vec::new();
     let mut content_ids: Vec<Ref> = Vec::new();
 
-    for _ in &page_tree.pages {
+    for _ in &doc.pages {
         page_ids.push(alloc.next());
         content_ids.push(alloc.next());
     }
@@ -37,8 +46,8 @@ pub fn render(page_tree: &PageTree) -> Vec<u8> {
     pdf.catalog(catalog_id).pages(pages_id);
 
     // ─── Page tree ────────────────────────────────────────────────────────────
-    let page_width  = page_tree.pages.first().map(|p| p.width).unwrap_or(595.28);
-    let page_height = page_tree.pages.first().map(|p| p.height).unwrap_or(841.89);
+    let page_width  = doc.pages.first().map(|p| p.width).unwrap_or(595.28);
+    let page_height = doc.pages.first().map(|p| p.height).unwrap_or(841.89);
     {
         let mut pages = pdf.pages(pages_id);
         pages.media_box(Rect::new(0.0, 0.0, page_width, page_height));
@@ -54,7 +63,7 @@ pub fn render(page_tree: &PageTree) -> Vec<u8> {
     pdf.type1_font(font_bold_id).base_font(Name(b"Helvetica-Bold")).encoding_predefined(Name(b"WinAnsiEncoding"));
 
     // ─── Страницы ─────────────────────────────────────────────────────────────
-    for (i, page) in page_tree.pages.iter().enumerate() {
+    for (i, page) in doc.pages.iter().enumerate() {
         let page_id    = page_ids[i];
         let content_id = content_ids[i];
 
@@ -74,16 +83,17 @@ pub fn render(page_tree: &PageTree) -> Vec<u8> {
     }
 
     pdf.finish()
+    }
 }
 
 // ─── Content stream ───────────────────────────────────────────────────────────
 
-fn build_content_stream(page_height: f32, commands: &[DrawCommand]) -> pdf_writer::Buf {
+fn build_content_stream(page_height: f32, commands: &[PainterCommand]) -> pdf_writer::Buf {
     let mut content = Content::new();
 
     for cmd in commands {
         match cmd {
-            DrawCommand::Rect { x, y, w, h, fill, stroke, stroke_width } => {
+            PainterCommand::Rect { x, y, w, h, fill, stroke, stroke_width } => {
                 let pdf_y = page_height - y - h;
 
                 if let Some(f) = fill {
@@ -99,7 +109,7 @@ fn build_content_stream(page_height: f32, commands: &[DrawCommand]) -> pdf_write
                 }
             }
 
-            DrawCommand::Line { x1, y1, x2, y2, color, width } => {
+            PainterCommand::Line { x1, y1, x2, y2, color, width } => {
                 let pdf_y1 = page_height - y1;
                 let pdf_y2 = page_height - y2;
 
@@ -110,7 +120,7 @@ fn build_content_stream(page_height: f32, commands: &[DrawCommand]) -> pdf_write
                 content.stroke();
             }
 
-            DrawCommand::Text { content: text, x, y, font_size, bold, color, .. } => {
+            PainterCommand::Text { content: text, x, y, font_size, bold, color, .. } => {
                 if text.trim().is_empty() {
                     continue;
                 }

@@ -4,7 +4,7 @@
 /// 1. Конвертация узлов в StyledBox с дефолтными стилями + явными attrs
 /// 2. Наследование стилей от родителя к ребёнку (font-size, color, etc.)
 
-use crate::parser::ast::{Block, Content, Document, Value};
+use crate::parser::ast::{Block, Content, Document, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
 use super::styles::{
     BoxContent, BoxKind, Color, Display, EdgeInsets, FontStyle, FontWeight,
@@ -16,11 +16,11 @@ use super::styles::{
 pub fn build_styled_tree(doc: &Document) -> DocumentArena {
     let mut arena = DocumentArena::new();
 
-    for block in &doc.blocks {
+    for (root, block) in doc.root_blocks() {
         if block.kind == "STYLES" {
             continue;
         }
-        let node_id = convert_block(block, None, &mut arena);
+        let node_id = convert_block(doc, root, None, &mut arena);
         arena.add_root(node_id);
     }
 
@@ -30,10 +30,12 @@ pub fn build_styled_tree(doc: &Document) -> DocumentArena {
 /// Рекурсивно конвертирует блок AST → StyledBox в арене.
 /// `parent_styles` — уже разрешённые стили родителя (для наследования).
 fn convert_block(
-    block: &Block,
+    doc: &Document,
+    ast_node_id: AstNodeId,
     parent_styles: Option<&ResolvedStyles>,
     arena: &mut DocumentArena,
 ) -> super::arena::NodeId {
+    let block = doc.block(ast_node_id);
     let kind = BoxKind::from_str(&block.kind);
 
     // Начинаем со стилей по умолчанию для этого вида блока
@@ -51,14 +53,14 @@ fn convert_block(
     let content = match &block.content {
         Content::Text(s) => BoxContent::Text(s.clone()),
         Content::Empty => BoxContent::Empty,
-        Content::Blocks(children) => {
+        Content::Children(children) => {
             // Сначала аллоцируем узел без детей
             // Затем рекурсивно аллоцируем детей
             // (нельзя иметь mutable borrow на arena и styles одновременно)
             let child_ids: Vec<_> = children
                 .iter()
-                .filter(|c| c.kind != "STYLES")
-                .map(|child| convert_block(child, Some(&styles), arena))
+                .filter(|child_id| doc.block(**child_id).kind != "STYLES")
+                .map(|&child_id| convert_block(doc, child_id, Some(&styles), arena))
                 .collect();
             BoxContent::Children(child_ids)
         }

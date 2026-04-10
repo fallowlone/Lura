@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use fontdb::{Database, Family, Query, Weight, Style as FontdbStyle, Stretch};
+use rustybuzz::UnicodeBuffer;
 use super::layout::MM_TO_PT;
 
 // ─── Глобальный кеш метрик ────────────────────────────────────────────────────
@@ -16,10 +17,44 @@ struct GlyphMetrics {
     units_per_em: u16,
 }
 
+struct FontSource {
+    data: Vec<u8>,
+    face_index: u32,
+}
+
 static METRICS_REGULAR: OnceLock<Option<GlyphMetrics>> = OnceLock::new();
 static METRICS_BOLD:    OnceLock<Option<GlyphMetrics>> = OnceLock::new();
+static FONT_REGULAR:    OnceLock<Option<FontSource>> = OnceLock::new();
+static FONT_BOLD:       OnceLock<Option<FontSource>> = OnceLock::new();
 
 fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
+    let source = load_font_source(bold)?;
+    let face = ttf_parser::Face::parse(&source.data, source.face_index).ok()?;
+    let units_per_em = face.units_per_em();
+    let mut advances = HashMap::with_capacity(512);
+    // Кешируем ASCII + Latin Extended (покрывает немецкие умлауты и типографику)
+    for code in 32u32..1024u32 {
+        if let Some(ch) = char::from_u32(code) {
+            if let Some(gid) = face.glyph_index(ch) {
+                if let Some(adv) = face.glyph_hor_advance(gid) {
+                    advances.insert(ch, adv);
+                }
+            }
+        }
+    }
+    // Bullet и типографские символы
+    for ch in ['•', '–', '—', '…', '"', '"', '€', '©', '®'] {
+        if let Some(gid) = face.glyph_index(ch) {
+            if let Some(adv) = face.glyph_hor_advance(gid) {
+                advances.insert(ch, adv);
+            }
+        }
+    }
+
+    Some(GlyphMetrics { advances, units_per_em })
+}
+
+fn load_font_source(bold: bool) -> Option<FontSource> {
     let mut db = Database::new();
     db.load_system_fonts();
 
@@ -36,31 +71,12 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
         stretch: Stretch::Normal,
     })?;
 
-    let mut result: Option<GlyphMetrics> = None;
+    let mut result: Option<FontSource> = None;
     db.with_face_data(id, |data, face_idx| {
-        if let Ok(face) = ttf_parser::Face::parse(data, face_idx) {
-            let units_per_em = face.units_per_em();
-            let mut advances = HashMap::with_capacity(512);
-            // Кешируем ASCII + Latin Extended (покрывает немецкие умлауты и типографику)
-            for code in 32u32..1024u32 {
-                if let Some(ch) = char::from_u32(code) {
-                    if let Some(gid) = face.glyph_index(ch) {
-                        if let Some(adv) = face.glyph_hor_advance(gid) {
-                            advances.insert(ch, adv);
-                        }
-                    }
-                }
-            }
-            // Bullet и типографские символы
-            for ch in ['•', '–', '—', '…', '"', '"', '€', '©', '®'] {
-                if let Some(gid) = face.glyph_index(ch) {
-                    if let Some(adv) = face.glyph_hor_advance(gid) {
-                        advances.insert(ch, adv);
-                    }
-                }
-            }
-            result = Some(GlyphMetrics { advances, units_per_em });
-        }
+        result = Some(FontSource {
+            data: data.to_vec(),
+            face_index: face_idx,
+        });
     });
     result
 }
@@ -68,6 +84,11 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
 fn get_metrics(bold: bool) -> Option<&'static GlyphMetrics> {
     let lock: &OnceLock<Option<GlyphMetrics>> = if bold { &METRICS_BOLD } else { &METRICS_REGULAR };
     lock.get_or_init(|| load_metrics(bold)).as_ref()
+}
+
+fn get_font_source(bold: bool) -> Option<&'static FontSource> {
+    let lock: &OnceLock<Option<FontSource>> = if bold { &FONT_BOLD } else { &FONT_REGULAR };
+    lock.get_or_init(|| load_font_source(bold)).as_ref()
 }
 
 /// Возвращает горизонтальное смещение символа в pt при заданном размере шрифта.
@@ -83,7 +104,36 @@ pub fn char_advance_pt(ch: char, font_size_pt: f32, bold: bool) -> f32 {
 
 /// Возвращает ширину строки в pt.
 pub fn text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> f32 {
+    if let Some(width) = shape_text_width_pt(text, font_size_pt, bold) {
+        return width;
+    }
     text.chars().map(|c| char_advance_pt(c, font_size_pt, bold)).sum()
+}
+
+fn shape_text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> Option<f32> {
+    if text.is_empty() {
+        return Some(0.0);
+    }
+    let source = get_font_source(bold)?;
+    let rb_face = rustybuzz::Face::from_slice(&source.data, source.face_index)?;
+    let ttf_face = ttf_parser::Face::parse(&source.data, source.face_index).ok()?;
+    let mut buffer = UnicodeBuffer::new();
+    buffer.push_str(text);
+    let glyph_buffer = rustybuzz::shape(&rb_face, &[], buffer);
+    let upem = ttf_face.units_per_em() as f32;
+    if upem <= 0.0 {
+        return None;
+    }
+    let mut width_units = 0.0f32;
+    for info in glyph_buffer.glyph_infos() {
+        let gid = ttf_parser::GlyphId(info.glyph_id as u16);
+        if let Some(adv) = ttf_face.glyph_hor_advance(gid) {
+            width_units += adv as f32;
+        } else {
+            width_units += upem * 0.55;
+        }
+    }
+    Some(width_units / upem * font_size_pt)
 }
 
 // ─── Текстовые строки ─────────────────────────────────────────────────────────
@@ -120,9 +170,7 @@ pub fn break_text(
 
     for (pos, opportunity) in &break_opportunities {
         let segment = &text[last_pos..*pos];
-        let segment_width: f32 = segment.chars()
-            .map(|c| char_advance_pt(c, font_size_pt, bold))
-            .sum();
+        let segment_width = text_width_pt(segment, font_size_pt, bold);
 
         if current_width + segment_width > max_width_pt && !current_line.is_empty() {
             let w = text_width_pt(current_line.trim_end(), font_size_pt, bold);

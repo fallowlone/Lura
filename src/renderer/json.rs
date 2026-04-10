@@ -7,8 +7,8 @@ pub fn render(doc: &Document) -> String {
     out.push_str(&render_vars(doc));
     out.push_str(",\n");
     out.push_str("  \"blocks\": [\n");
-    let blocks: Vec<String> = doc.blocks.iter()
-        .map(|b| render_block(b, 2))
+    let blocks: Vec<String> = doc.root_blocks()
+        .map(|(_, block)| render_block(block, doc, 2))
         .collect();
     out.push_str(&blocks.join(",\n"));
     out.push_str("\n  ]\n}");
@@ -28,7 +28,7 @@ fn render_vars(doc: &Document) -> String {
     out
 }
 
-fn render_block(block: &Block, indent: usize) -> String {
+fn render_block(block: &Block, doc: &Document, indent: usize) -> String {
     let pad = "  ".repeat(indent);
     let mut out = format!("{}{{\n", pad);
     out.push_str(&format!("{}  \"kind\": \"{}\",\n", pad, block.kind));
@@ -49,20 +49,20 @@ fn render_block(block: &Block, indent: usize) -> String {
     out.push_str(",\n");
 
     // content
-    out.push_str(&format!("{}  \"content\": {}\n", pad, render_content(&block.content, indent + 1)));
+    out.push_str(&format!("{}  \"content\": {}\n", pad, render_content(&block.content, doc, indent + 1)));
     out.push_str(&format!("{}}}", pad));
     out
 }
 
-fn render_content(content: &Content, indent: usize) -> String {
+fn render_content(content: &Content, doc: &Document, indent: usize) -> String {
     match content {
         Content::Text(s) => format!("\"{}\"", s.replace('"', "\\\"")),
         Content::Empty => "null".into(),
-        Content::Blocks(blocks) => {
+        Content::Children(blocks) => {
             let pad = "  ".repeat(indent);
             let mut out = String::from("[\n");
             let rendered: Vec<String> = blocks.iter()
-                .map(|b| render_block(b, indent + 1))
+                .map(|&id| render_block(doc.block(id), doc, indent + 1))
                 .collect();
             out.push_str(&rendered.join(",\n"));
             out.push_str(&format!("\n{}]", pad));

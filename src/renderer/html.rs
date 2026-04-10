@@ -209,19 +209,19 @@ fn build_css(doc: &Document) -> String {
 
 fn render_body(doc: &Document) -> String {
     let mut out = String::new();
-    for block in &doc.blocks {
-        render_block(block, &mut out, 2);
+    for (_, block) in doc.root_blocks() {
+        render_block(block, doc, &mut out, 2);
     }
     out
 }
 
-fn render_block(block: &Block, out: &mut String, indent: usize) {
+fn render_block(block: &Block, doc: &Document, out: &mut String, indent: usize) {
     let pad = "  ".repeat(indent);
 
     match block.kind.as_str() {
         "PAGE" => {
             out.push_str(&format!("{}<div class=\"folio-page\">\n", pad));
-            render_children(block, out, indent + 1);
+            render_children(block, doc, out, indent + 1);
             out.push_str(&format!(
                 "{0}  <span class=\"folio-badge\">.fol</span>\n{0}</div>\n",
                 pad
@@ -273,7 +273,7 @@ fn render_block(block: &Block, out: &mut String, indent: usize) {
                 .unwrap_or(false);
             let tag = if ordered { "ol" } else { "ul" };
             out.push_str(&format!("{}<{} class=\"folio-list\">\n", pad, tag));
-            render_children(block, out, indent + 1);
+            render_children(block, doc, out, indent + 1);
             out.push_str(&format!("{}</{}>\n", pad, tag));
         }
         "ITEM" => {
@@ -287,18 +287,18 @@ fn render_block(block: &Block, out: &mut String, indent: usize) {
                 "{}<div class=\"folio-grid\" style=\"{}\">\n",
                 pad, style
             ));
-            render_children(block, out, indent + 1);
+            render_children(block, doc, out, indent + 1);
             out.push_str(&format!("{}</div>\n", pad));
         }
         "TABLE" => {
             let style = build_inline_style(block);
             out.push_str(&format!("{}<table class=\"folio-table\"{}>\n", pad, style));
-            render_children(block, out, indent + 1);
+            render_children(block, doc, out, indent + 1);
             out.push_str(&format!("{}</table>\n", pad));
         }
         "ROW" => {
             out.push_str(&format!("{}<tr class=\"folio-row\">\n", pad));
-            render_children(block, out, indent + 1);
+            render_children(block, doc, out, indent + 1);
             out.push_str(&format!("{}</tr>\n", pad));
         }
         "CELL" => {
@@ -306,7 +306,7 @@ fn render_block(block: &Block, out: &mut String, indent: usize) {
             let style = build_inline_style(block);
             out.push_str(&format!("{}<td{}>\n", pad, style));
             if has_children(block) {
-                render_children(block, out, indent + 1);
+                render_children(block, doc, out, indent + 1);
             } else if !text.is_empty() {
                 out.push_str(&format!("{}  {}\n", pad, text));
             }
@@ -335,7 +335,7 @@ fn render_block(block: &Block, out: &mut String, indent: usize) {
                     pad,
                     sanitize_kind_for_class(&block.kind)
                 ));
-                render_children(block, out, indent + 1);
+                render_children(block, doc, out, indent + 1);
                 out.push_str(&format!("{}</div>\n", pad));
             } else {
                 let text = escape_html(&extract_text(block));
@@ -347,23 +347,23 @@ fn render_block(block: &Block, out: &mut String, indent: usize) {
     }
 }
 
-fn render_children(block: &Block, out: &mut String, indent: usize) {
-    if let Content::Blocks(blocks) = &block.content {
-        for child in blocks {
-            render_block(child, out, indent);
+fn render_children(block: &Block, doc: &Document, out: &mut String, indent: usize) {
+    if let Content::Children(children) = &block.content {
+        for &child in children {
+            render_block(doc.block(child), doc, out, indent);
         }
     }
 }
 
 fn has_children(block: &Block) -> bool {
-    matches!(&block.content, Content::Blocks(b) if !b.is_empty())
+    matches!(&block.content, Content::Children(children) if !children.is_empty())
 }
 
 fn extract_text(block: &Block) -> String {
     match &block.content {
         Content::Text(s) => s.clone(),
         Content::Empty => String::new(),
-        Content::Blocks(_) => String::new(),
+        Content::Children(_) => String::new(),
     }
 }
 
