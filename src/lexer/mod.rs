@@ -62,7 +62,7 @@ impl Lexer {
 
     fn read_ident(&mut self) -> String {
         let mut s = String::new();
-        while matches!(self.current(), Some(c) if c.is_alphanumeric() || c == '_') {
+        while matches!(self.current(), Some(c) if c.is_alphanumeric() || c == '_' || c == '-') {
             s.push(self.advance().unwrap());
         }
         s
@@ -112,8 +112,8 @@ impl Lexer {
     // Look ahead: is the word starting at current pos followed by ( ?
     fn is_block_start(&self) -> bool {
         let mut i = self.pos;
-        // skip ident chars
-        while matches!(self.input.get(i), Some(c) if c.is_alphanumeric() || *c == '_') {
+        // skip ident chars (including hyphen, as in CSS property names)
+        while matches!(self.input.get(i), Some(c) if c.is_alphanumeric() || *c == '_' || *c == '-') {
             i += 1;
         }
         // skip whitespace

@@ -1,12 +1,8 @@
 mod cli;
-mod lexer;
-mod parser;
-mod renderer;
 
 use clap::Parser as ClapParser;
 use cli::{Cli, Commands};
-use lexer::Lexer;
-use parser::Parser;
+use folio::{engine, lexer::Lexer, parser, parser::Parser, renderer};
 use std::fs;
 use std::process;
 
@@ -37,6 +33,26 @@ fn main() {
             }
         }
 
+        Commands::Render { file, output } => {
+            let input = read_file(&file);
+            let mut lexer = Lexer::new(&input);
+            let tokens = lexer.tokenize();
+            let mut parser = Parser::new(tokens);
+            let doc = parser.parse().unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                process::exit(1);
+            });
+            let doc = parser::resolver::resolve(doc);
+            let doc = parser::id::assign_ids(doc);
+
+            let pdf_bytes = engine::render_pdf(&doc);
+            fs::write(&output, &pdf_bytes).unwrap_or_else(|e| {
+                eprintln!("error: could not write to {}: {e}", output.display());
+                process::exit(1);
+            });
+            println!("Rendered (Engine v2) → {}", output.display());
+        }
+
         Commands::Convert { file, format, output } => {
             let input = read_file(&file);
             let mut lexer = Lexer::new(&input);
@@ -49,11 +65,41 @@ fn main() {
             let doc = parser::resolver::resolve(doc);
             let doc = parser::id::assign_ids(doc);
 
+            if format == "pdf" {
+                match renderer::pdf::render(&doc) {
+                    Ok(pdf_data) => {
+                        match output {
+                            Some(path) => {
+                                fs::write(&path, &pdf_data).unwrap_or_else(|e| {
+                                    eprintln!("error: could not write to {}: {e}", path.display());
+                                    process::exit(1);
+                                });
+                            }
+                            None => {
+                                // Default for binary format without output file
+                                let def_path = "output.pdf";
+                                fs::write(def_path, &pdf_data).unwrap_or_else(|e| {
+                                    eprintln!("error: could not write to {def_path}: {e}");
+                                    process::exit(1);
+                                });
+                                println!("PDF exported successfully to {def_path}");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("error: failed to generate PDF: {e}");
+                        process::exit(1);
+                    }
+                }
+                return;
+            }
+
             let result = match format.as_str() {
                 "json" => renderer::json::render(&doc),
                 "text" => renderer::text::render(&doc),
+                "html" => renderer::html::render(&doc),
                 other => {
-                    eprintln!("error: unknown format '{other}'. Use json or text.");
+                    eprintln!("error: unknown format '{other}'. Use json, text, html, or pdf.");
                     process::exit(1);
                 }
             };
