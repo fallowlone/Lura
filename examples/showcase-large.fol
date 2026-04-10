@@ -1,0 +1,150 @@
+STYLES({
+  #brand: #1D4ED8,
+  #muted: #6B7280,
+  #ok: #059669,
+  #warn: #D97706,
+  #danger: #DC2626,
+  #bgSoft: #F3F4F6
+})
+
+PAGE(
+  H1({color: #brand} Folio Capability Showcase 2026)
+  P(This document stress-tests rendering with *mixed inline styling*, **bold accents**, `inline code`, and [links](https://folio.local/spec).)
+  P({color: #muted} The goal is to produce a large realistic document and compare .fol vs exported PDF sizes.)
+  HR()
+
+  H2(1. Executive Summary)
+  P(Folio stores semantic blocks instead of visual coordinates. This improves readability, diff quality, and maintainability.)
+  P({justify: true, word-spacing: 0.4} In this paragraph we enable justification and additional spacing to test line distribution in the text layout pipeline. The renderer should keep stable baseline alignment while preserving inline styles inside wrapped lines.)
+
+  H2(2. Quick Feature Matrix)
+  TABLE(
+    ROW(
+      CELL({background: #bgSoft} P(**Feature**))
+      CELL({background: #bgSoft} P(**Status**))
+      CELL({background: #bgSoft} P(**Notes**))
+    )
+    ROW(
+      CELL(P(Inline runs))
+      CELL(P({color: #ok} Ready))
+      CELL(P(Strong/Emphasis/Code/Link in one line))
+    )
+    ROW(
+      CELL(P(Pagination rules))
+      CELL(P({color: #warn} Partial))
+      CELL(P(keep-with-next and keep-together baseline available))
+    )
+    ROW(
+      CELL(P(Global refs))
+      CELL(P({color: #warn} Foundation))
+      CELL(P(Counters and introspection module prepared))
+    )
+    ROW(
+      CELL(P(Export parity))
+      CELL(P({color: #ok} Improving))
+      CELL(P(Capability matrix and smoke tests implemented))
+    )
+  )
+
+  H2(3. Grid Sample)
+  GRID({columns: 2, gap: 3}
+    P({background: #bgSoft, padding: 2} Left cell with descriptive text and *inline emphasis* to validate spacing under grid placement.)
+    P({background: #bgSoft, padding: 2} Right cell with `code span` and [link](https://example.dev) to test run-level rendering parity.)
+    P({background: #bgSoft, padding: 2} Another left block to increase volume and pagination pressure.)
+    P({background: #bgSoft, padding: 2} Another right block with **strong text** and longer content to wrap several times in the same container.)
+  )
+)
+
+PAGE(
+  H1({color: #brand} Typography and Wrapping Tests)
+  P({letter-spacing: 0.2} Letter spacing test: typography should remain readable and line widths should be stable.)
+  P({word-spacing: 0.7} Word spacing test: this line has wider spacing between words and should still wrap correctly.)
+  P({justify: true, letter-spacing: 0.1, word-spacing: 0.3} Combined spacing and justification test. The line-builder should distribute content with predictable behavior and no style corruption when moving to next lines.)
+
+  H2(4. Long Narrative Block)
+  P({justify: true} Folio is intended for dense technical writing. A large block like this simulates real documentation: architecture rationale, migration notes, compatibility constraints, and implementation caveats. It should paginate safely, keep stable text baseline, and render similarly across PDF and SVG pipelines even when content contains multiple inline style transitions such as *emphasis*, **strong**, `code`, and [references](https://folio.dev/docs).)
+  P({justify: true} Additional paragraph for volume. We intentionally keep text long so wrapping occurs many times. This helps validate cache behavior in text measurement, ensures deterministic line splitting, and reveals regressions in paragraph rendering when style options like letter-spacing, word-spacing, or justification are enabled.)
+
+  H2(5. Quote and Code Blocks)
+  QUOTE(P({color: #muted} "Readable source documents plus deterministic rendering is a strong baseline for collaborative technical publishing."))
+  CODE({background: #bgSoft}
+    P(fn render_document(doc: &Document) -> Vec<u8> {)
+    P(  let styled = build_styled_tree(doc);)
+    P(  let layout = compute_layout(&styled);)
+    P(  let pages = paginate(&layout, &styled);)
+    P(  backend::pdf::render(&pages))
+    P(})
+  )
+)
+
+PAGE(
+  H1({color: #brand} Large Table Stress Test)
+  P({color: #muted} This page includes many rows to stress row heights, borders, and page breaks.)
+  TABLE(
+    ROW(
+      CELL({background: #bgSoft} P(**ID**))
+      CELL({background: #bgSoft} P(**Component**))
+      CELL({background: #bgSoft} P(**Description**))
+      CELL({background: #bgSoft} P(**Owner**))
+    )
+    ROW(CELL(P(001)) CELL(P(Parser)) CELL(P(Token stream to AST conversion with inline nodes.)) CELL(P(Core)))
+    ROW(CELL(P(002)) CELL(P(Resolver)) CELL(P(Style inheritance and attribute resolution.)) CELL(P(Core)))
+    ROW(CELL(P(003)) CELL(P(Layout)) CELL(P(Taffy-based geometry for block trees and grid.)) CELL(P(Engine)))
+    ROW(CELL(P(004)) CELL(P(Text)) CELL(P(Shaping and width metrics with cache layers.)) CELL(P(Engine)))
+    ROW(CELL(P(005)) CELL(P(Paginate)) CELL(P(Cursor flow, page split logic, table row policies.)) CELL(P(Engine)))
+    ROW(CELL(P(006)) CELL(P(Painter)) CELL(P(Backend abstraction for PDF and SVG output.)) CELL(P(Render)))
+    ROW(CELL(P(007)) CELL(P(PDF)) CELL(P(Vector output with Type1 fonts and encoded text.)) CELL(P(Render)))
+    ROW(CELL(P(008)) CELL(P(SVG)) CELL(P(Readable XML output with structural parity checks.)) CELL(P(Render)))
+    ROW(CELL(P(009)) CELL(P(CLI)) CELL(P(Convert, render, print, and printer listing commands.)) CELL(P(Tools)))
+    ROW(CELL(P(010)) CELL(P(Tests)) CELL(P(Unit and integration smoke validation.)) CELL(P(QA)))
+    ROW(CELL(P(011)) CELL(P(Assets)) CELL(P(Planned linked/hash asset model support.)) CELL(P(Format)))
+    ROW(CELL(P(012)) CELL(P(Counters)) CELL(P(Heading counters and global pass foundations.)) CELL(P(Engine)))
+    ROW(CELL(P(013)) CELL(P(Introspection)) CELL(P(Page-level mapping for future refs/TOC.)) CELL(P(Engine)))
+    ROW(CELL(P(014)) CELL(P(Parity)) CELL(P(Capability matrix and regression checks.)) CELL(P(QA)))
+    ROW(CELL(P(015)) CELL(P(Optimization)) CELL(P(Cache hit/miss budgeting and profiling hooks.)) CELL(P(Perf)))
+    ROW(CELL(P(016)) CELL(P(Printer)) CELL(P(lp/lpr fallback with dry-run mode.)) CELL(P(Tools)))
+    ROW(CELL(P(017)) CELL(P(Format Spec)) CELL(P(Semantic block language with style vars.)) CELL(P(Format)))
+    ROW(CELL(P(018)) CELL(P(GPU Preview)) CELL(P(WGPU scaffold for future interactive preview.)) CELL(P(Render)))
+    ROW(CELL(P(019)) CELL(P(Migration)) CELL(P(Compatibility bridge and rollout strategy.)) CELL(P(Ops)))
+    ROW(CELL(P(020)) CELL(P(Security)) CELL(P(Integrity-focused certificate design ideas.)) CELL(P(Research)))
+  )
+)
+
+PAGE(
+  H1({color: #brand} List, Keep Rules, and Reflow Samples)
+  H2(6. Ordered Checklist)
+  LIST({type: ordered}
+    ITEM({keep-with-next: true} P(Define target layout behavior and measurable acceptance criteria.))
+    ITEM(P(Implement parser and AST changes with tests for all new inline forms.))
+    ITEM(P(Update layout and pagination without regressions in legacy block content.))
+    ITEM(P(Validate exports and compare structural parity between PDF and SVG.))
+    ITEM(P(Measure performance and identify cache win/loss scenarios.))
+  )
+
+  H2(7. Bullet Notes)
+  LIST({type: bullet}
+    ITEM(P(Use semantic blocks for long-term maintainability.))
+    ITEM(P(Keep renderer deterministic to avoid diff noise.))
+    ITEM(P(Prefer explicit constraints over hidden magic.))
+    ITEM(P(Track parity and regression from day one.))
+  )
+
+  H2(8. Float-like Positioning Baseline)
+  P({float: left, width: 70, background: #bgSoft, padding: 2} Left-floating note: this block uses float settings from the current foundation.)
+  P({float: right, width: 70, background: #bgSoft, padding: 2} Right-floating note: useful for callouts and side summaries.)
+  P({justify: true} Main body text continues after float samples. In future milestones this will evolve into more advanced anchor and template-based page region behavior. For now, this page ensures we already exercise the current foundational knobs in real content.)
+)
+
+PAGE(
+  H1({color: #brand} Integration Scenario: Mixed Inline Everywhere)
+  P(In a single line we combine *italic phrase*, **bold phrase**, `inline code`, and [external ref](https://folio.dev/changelog).)
+  P(Another line with **bold** then normal text then *italic* then `code` then **bold** again to verify run switching.)
+  P({justify: true} A long justified paragraph with [links](https://folio.dev), **strong fragments**, and *emphasis fragments* should still preserve style flags after wrapping to several lines across the page width.)
+  P({justify: true, letter-spacing: 0.15} Extra paragraph with letter spacing applied to ensure width calculations and wrapping remain deterministic when spacing differs from defaults.)
+  P({justify: true, word-spacing: 0.45} Extra paragraph with word spacing applied to emulate publishing-style typography and stress spacing logic inside the text engine.)
+
+  H2(9. Final Notes)
+  QUOTE(P({color: #muted} "If a document can be read and reviewed in plain text, collaboration cost drops dramatically."))
+  HR()
+  P({color: #muted} End of showcase.)
+)
