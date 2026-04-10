@@ -11,6 +11,7 @@ pdf-writer = "0.14.0"
 printpdf = "0.8.2"
 taffy = "0.10.0"
 textwrap = "0.16.1"
+ttf-parser = "0.24"
 unicode-linebreak = "0.1.5"
 
 [lib]

@@ -1,32 +1,105 @@
-/// Фаза 3: Шрифты и разбивка текста на строки
+/// Шрифты и разбивка текста на строки.
 ///
-/// - `fontdb` — загружает системные .ttf/.otf файлы, строит базу данных шрифтов
-/// - `unicode-linebreak` — находит допустимые позиции переноса строк (Unicode UAX #14)
-///
-/// `rustybuzz` (full text shaping с глифами) вынесен в будущую итерацию:
-/// для v2 используем приблизительную ширину символа через metrics шрифта из fontdb.
+/// Измерение ширины символов — через ttf-parser с реальными метриками шрифта.
+/// Загружается один раз в OnceLock при первом обращении.
+/// Если системный шрифт не найден — fallback на коэффициент 0.55.
 
-use fontdb::{Database, Family, Query, Weight, Style as FontdbStyle};
+use std::collections::HashMap;
+use std::sync::OnceLock;
+use fontdb::{Database, Family, Query, Weight, Style as FontdbStyle, Stretch};
 use super::styles::{FontWeight, FontStyle};
 use super::layout::MM_TO_PT;
 
+// ─── Глобальный кеш метрик ────────────────────────────────────────────────────
+
+struct GlyphMetrics {
+    advances: HashMap<char, u16>,
+    units_per_em: u16,
+}
+
+static METRICS_REGULAR: OnceLock<Option<GlyphMetrics>> = OnceLock::new();
+static METRICS_BOLD:    OnceLock<Option<GlyphMetrics>> = OnceLock::new();
+
+fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
+    let mut db = Database::new();
+    db.load_system_fonts();
+
+    let weight = if bold { Weight::BOLD } else { Weight::NORMAL };
+    let id = db.query(&Query {
+        families: &[
+            Family::Name("Helvetica Neue"),
+            Family::Name("Helvetica"),
+            Family::Name("Arial"),
+            Family::SansSerif,
+        ],
+        weight,
+        style: FontdbStyle::Normal,
+        stretch: Stretch::Normal,
+    })?;
+
+    let mut result: Option<GlyphMetrics> = None;
+    db.with_face_data(id, |data, face_idx| {
+        if let Ok(face) = ttf_parser::Face::parse(data, face_idx) {
+            let units_per_em = face.units_per_em();
+            let mut advances = HashMap::with_capacity(512);
+            // Кешируем ASCII + Latin Extended (покрывает немецкие умлауты и типографику)
+            for code in 32u32..1024u32 {
+                if let Some(ch) = char::from_u32(code) {
+                    if let Some(gid) = face.glyph_index(ch) {
+                        if let Some(adv) = face.glyph_hor_advance(gid) {
+                            advances.insert(ch, adv);
+                        }
+                    }
+                }
+            }
+            // Bullet и типографские символы
+            for ch in ['•', '–', '—', '…', '"', '"', '€', '©', '®'] {
+                if let Some(gid) = face.glyph_index(ch) {
+                    if let Some(adv) = face.glyph_hor_advance(gid) {
+                        advances.insert(ch, adv);
+                    }
+                }
+            }
+            result = Some(GlyphMetrics { advances, units_per_em });
+        }
+    });
+    result
+}
+
+fn get_metrics(bold: bool) -> Option<&'static GlyphMetrics> {
+    let lock: &OnceLock<Option<GlyphMetrics>> = if bold { &METRICS_BOLD } else { &METRICS_REGULAR };
+    lock.get_or_init(|| load_metrics(bold)).as_ref()
+}
+
+/// Возвращает горизонтальное смещение символа в pt при заданном размере шрифта.
+pub fn char_advance_pt(ch: char, font_size_pt: f32, bold: bool) -> f32 {
+    if let Some(m) = get_metrics(bold) {
+        if let Some(&adv) = m.advances.get(&ch) {
+            return adv as f32 / m.units_per_em as f32 * font_size_pt;
+        }
+    }
+    // Fallback: консервативная аппроксимация
+    font_size_pt * 0.55
+}
+
+/// Возвращает ширину строки в pt.
+pub fn text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> f32 {
+    text.chars().map(|c| char_advance_pt(c, font_size_pt, bold)).sum()
+}
+
 // ─── Font Database ────────────────────────────────────────────────────────────
 
-/// Глобальная база системных шрифтов.
 pub struct FontManager {
     pub db: Database,
 }
 
 impl FontManager {
-    /// Создаёт менеджер и загружает все системные шрифты.
     pub fn load() -> Self {
         let mut db = Database::new();
         db.load_system_fonts();
         Self { db }
     }
 
-    /// Находит ID шрифта по семейству, жирности и стилю.
-    /// Если точного совпадения нет — возвращает ближайший fallback.
     pub fn find_font(
         &self,
         family: &str,
@@ -43,75 +116,56 @@ impl FontManager {
         };
 
         let query = Query {
-            families: &[
-                Family::Name(family),
-                Family::SansSerif,  // fallback
-            ],
+            families: &[Family::Name(family), Family::SansSerif],
             weight: weight_val,
             style: style_val,
-            stretch: fontdb::Stretch::Normal,
+            stretch: Stretch::Normal,
         };
 
         self.db.query(&query)
-    }
-
-    /// Возвращает приблизительную ширину одного символа (em) в pt.
-    /// Используется для оценки ширины строки до rustybuzz shaping.
-    pub fn char_width_pt(font_size_pt: f32) -> f32 {
-        // Консервативная оценка: 0.6 × font_size для моноширинного,
-        // 0.55 × font_size для пропорционального.
-        font_size_pt * 0.55
     }
 }
 
 // ─── Текстовые строки ─────────────────────────────────────────────────────────
 
-/// Одна визуальная строка после line-break
 #[derive(Debug, Clone)]
 pub struct TextLine {
     pub text: String,
-    /// Ширина строки в pt
     pub width: f32,
-    /// Высота строки (line_height × font_size) в pt
     pub line_height_pt: f32,
-    /// Размер шрифта в pt (нужен для вычисления baseline)
     pub font_size: f32,
 }
 
 /// Разбивает текст на строки по ширине контейнера.
-///
-/// Алгоритм:
-/// 1. Находим допустимые позиции переноса через `unicode-linebreak`
-/// 2. Жадно набираем слова в строку, пока ширина не превышает max_width
-/// 3. При превышении переносим на следующую строку
+/// Использует реальные метрики шрифта (через GlyphMetrics) если доступны.
 pub fn break_text(
     text: &str,
     max_width_pt: f32,
     font_size_pt: f32,
     line_height: f32,
+    bold: bool,
 ) -> Vec<TextLine> {
     if text.is_empty() {
         return vec![];
     }
 
-    let char_w = FontManager::char_width_pt(font_size_pt);
     let line_h = font_size_pt * line_height;
 
-    // Получаем допустимые позиции переноса (Unicode UAX #14)
     let break_opportunities = unicode_linebreak::linebreaks(text).collect::<Vec<_>>();
 
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut current_width = 0.0f32;
-
     let mut last_pos = 0usize;
 
     for (pos, opportunity) in &break_opportunities {
         let segment = &text[last_pos..*pos];
-        let segment_width = segment.chars().count() as f32 * char_w;
+        let segment_width: f32 = segment.chars()
+            .map(|c| char_advance_pt(c, font_size_pt, bold))
+            .sum();
 
         if current_width + segment_width > max_width_pt && !current_line.is_empty() {
-            let w = current_line.chars().count() as f32 * char_w;
+            let w = text_width_pt(current_line.trim_end(), font_size_pt, bold);
             lines.push(TextLine {
                 text: current_line.trim_end().to_string(),
                 width: w.min(max_width_pt),
@@ -125,9 +179,8 @@ pub fn break_text(
         current_line.push_str(segment);
         current_width += segment_width;
 
-        // Принудительный перенос (newline / mandatory break)
         if *opportunity == unicode_linebreak::BreakOpportunity::Mandatory {
-            let w = current_line.chars().count() as f32 * char_w;
+            let w = text_width_pt(current_line.trim_end(), font_size_pt, bold);
             lines.push(TextLine {
                 text: current_line.trim_end().to_string(),
                 width: w.min(max_width_pt),
@@ -141,9 +194,8 @@ pub fn break_text(
         last_pos = *pos;
     }
 
-    // Последний кусок
     if !current_line.trim().is_empty() {
-        let w = current_line.chars().count() as f32 * char_w;
+        let w = text_width_pt(current_line.trim_end(), font_size_pt, bold);
         lines.push(TextLine {
             text: current_line.trim_end().to_string(),
             width: w.min(max_width_pt),
@@ -155,22 +207,15 @@ pub fn break_text(
     lines
 }
 
-/// Оценивает высоту текстового блока.
-///
-/// Текст рендерится по baseline: первая строка — cursor_y + font_size,
-/// каждая следующая — через line_height_pt. Чтобы cursor_y после блока
-/// оказался под последней строкой с учётом descender, добавляем font_size
-/// как высоту «кэпа» первой строки.
+/// Высота текстового блока: baseline первой строки + (N-1) × line_height.
 pub fn text_block_height(lines: &[TextLine]) -> f32 {
     if lines.is_empty() {
         return 0.0;
     }
     let first = &lines[0];
-    // font_size (baseline первой строки) + (N-1) * line_height + небольшой descender зазор
     first.font_size + (lines.len().saturating_sub(1)) as f32 * first.line_height_pt
 }
 
-/// Конвертирует mm → pt (удобная утилита)
 #[allow(dead_code)]
 pub fn mm_to_pt(mm: f32) -> f32 {
     mm * MM_TO_PT
