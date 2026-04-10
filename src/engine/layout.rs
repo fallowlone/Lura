@@ -18,7 +18,7 @@ pub const A4_HEIGHT_MM: f32 = 297.0;
 pub const A4_WIDTH_PT: f32  = A4_WIDTH_MM  * MM_TO_PT;  // ≈ 595.3
 pub const A4_HEIGHT_PT: f32 = A4_HEIGHT_MM * MM_TO_PT;  // ≈ 841.9
 
-pub const PAGE_MARGIN_MM: f32 = 20.0;
+pub const PAGE_MARGIN_MM: f32 = 15.0;
 pub const PAGE_MARGIN_PT: f32 = PAGE_MARGIN_MM * MM_TO_PT;
 
 /// Ширина контентной области A4 в pt
@@ -220,8 +220,12 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
             BoxKind::Row  => FlexDirection::Row,    // горизонтальный стек ячеек
             _             => FlexDirection::Row,
         },
-        // flex-grow: 1 для CELL — занимает равное место в строке
-        flex_grow: if matches!(kind, BoxKind::Cell) { 1.0 } else { 0.0 },
+        // flex-grow для CELL: берём из стилей (default 1.0 — равные колонки)
+        flex_grow: if matches!(kind, BoxKind::Cell) {
+            if styles.flex_grow > 0.0 { styles.flex_grow } else { 1.0 }
+        } else {
+            styles.flex_grow
+        },
         ..Default::default()
     }
 }

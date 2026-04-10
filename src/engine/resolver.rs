@@ -168,6 +168,11 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
                     };
                 }
             }
+            "flex-grow" | "grow" => {
+                if let Some(v) = value_to_f32(value) {
+                    styles.flex_grow = v;
+                }
+            }
             "columns" | "grid-columns" => {
                 if let Some(v) = value_to_f32(value) {
                     styles.grid_columns = Some(v as usize);

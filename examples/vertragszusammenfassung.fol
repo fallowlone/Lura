@@ -8,72 +8,72 @@ STYLES({
 
 PAGE(
   H2({color: #accent} Telefonica Germany GmbH und Co. OHG)
-  P({color: #muted, font-size: 10} Georg-Brauchle-Ring 50  80992 Munchen  |  o2online.de/service/  |  089 78 79 79 40 0)
+  P({color: #muted, font-size: 9} Georg-Brauchle-Ring 50  80992 München  |  o2online.de/service/  |  089 78 79 79 40 0)
 
   H1({color: #brand} Vertragszusammenfassung)
-  P({color: #muted} o2 Home L 250  -  12.03.2026)
+  P({color: #muted, font-size: 9} o2 Home L 250  -  12.03.2026)
 
-  P(Diese Vertragszusammenfassung enthaelt die Hauptbestandteile dieses Dienstleistungsangebots, wie es das EU-Recht vorschreibt.)
-  P(Sie erleichtert den Vergleich verschiedener Angebote.)
-  P(Vollstaendige Information ueber die Dienstleistung sind in anderen Dokumenten enthalten.)
+  P({font-size: 9} Diese Vertragszusammenfassung enthält die Hauptbestandteile dieses Dienstleistungsangebots, wie es das EU-Recht vorschreibt.)
+  P({font-size: 9} Sie erleichtert den Vergleich verschiedener Angebote.)
+  P({font-size: 9} Vollständige Information über die Dienstleistung sind in anderen Dokumenten enthalten.)
 
-  H2({color: #accent} Dienste und Geraete)
-  P(Sprachtelefonanschluss mit Flatrate fuer Gespraeche ins deutsche Fest- und Mobilfunknetz, Internetzugang mit unbegrenztem Datenvolumen. Die Dienste sind nur an der vereinbarten festen Anschlussadresse nutzbar.)
+  H2({color: #accent} Dienste und Geräte)
+  P({font-size: 9} Sprachtelefonanschluss mit Flatrate für Gespräche ins deutsche Fest- und Mobilfunknetz, Internetzugang mit unbegrenztem Datenvolumen. Die Dienste sind nur an der vereinbarten festen Anschlussadresse nutzbar.)
 
   H2({color: #accent} Geschwindigkeiten des Internetdienstes)
-  P(Bei Bereitstellung ueber DSL und Glasfaser: Maximale und beworbene Datengeschwindigkeit 250 MBit/s im Download und 40 MBit/s im Upload, minimale 175 MBit/s im Download und 20 MBit/s im Upload, normalerweise 200 MBit/s im Download und 35 MBit/s im Upload.)
-  P(Bei Bereitstellung ueber Kabel: Maximale 250 MBit/s im Download und 10 MBit/s im Upload, minimale 105 MBit/s im Download und 3 MBit/s im Upload, normalerweise 200 MBit/s im Download und 7 MBit/s im Upload.)
-  P(Im Falle einer Abweichung der Geschwindigkeit koennen Sie unter den Voraussetzungen des TKG das Recht auf Minderung und Kuendigung geltend machen.)
+  P({font-size: 9} Bei Bereitstellung über DSL und Glasfaser: Maximale und beworbene Datengeschwindigkeit 250 MBit/s im Download und 40 MBit/s im Upload, minimale 175 MBit/s im Download und 20 MBit/s im Upload, normalerweise 200 MBit/s im Download und 35 MBit/s im Upload.)
+  P({font-size: 9} Bei Bereitstellung über Kabel: Maximale 250 MBit/s im Download und 10 MBit/s im Upload, minimale 105 MBit/s im Download und 3 MBit/s im Upload, normalerweise 200 MBit/s im Download und 7 MBit/s im Upload.)
+  P({font-size: 9} Im Falle einer Abweichung der Geschwindigkeit können Sie unter den Voraussetzungen des TKG das Recht auf Minderung und Kündigung geltend machen.)
 
   H2({color: #accent} Entgelte)
   TABLE(
     ROW(
-      CELL({font-weight: "bold"} Leistung)
+      CELL({font-weight: "bold", flex-grow: 3} Leistung)
       CELL({font-weight: "bold"} Monatlich)
       CELL({font-weight: "bold"} Einmalig)
     )
     ROW(
-      CELL(o2 Home L 250)
+      CELL({flex-grow: 3} o2 Home L 250)
       CELL(44,99 EUR)
       CELL(0,00 EUR)
     )
     ROW(
-      CELL(40 EUR Rabatt auf den Anschlusspreis bis 11.04.2026)
+      CELL({flex-grow: 3} 40 EUR Rabatt auf den Anschlusspreis bis 11.04.2026)
       CELL(-40,00 EUR)
       CELL()
     )
     ROW(
-      CELL(Einmaliger Anschlusspreis)
+      CELL({flex-grow: 3} Einmaliger Anschlusspreis)
       CELL(0,00 EUR)
       CELL(49,99 EUR)
     )
     ROW(
-      CELL(12 Monate 10 EUR Rabatt auf die Grundgebuehr bis 11.03.2027)
+      CELL({flex-grow: 3} 12 Monate 10 EUR Rabatt auf die Grundgebühr bis 11.03.2027)
       CELL(-10,00 EUR)
       CELL()
     )
     ROW(
-      CELL({font-weight: "bold"} Gesamtpreis)
+      CELL({font-weight: "bold", flex-grow: 3} Gesamtpreis)
       CELL({font-weight: "bold"} 34,99 EUR)
       CELL({font-weight: "bold"} 9,99 EUR)
     )
     ROW(
-      CELL(Nach 12 Monaten)
+      CELL({flex-grow: 3} Nach 12 Monaten)
       CELL(44,99 EUR)
       CELL(Preise inkl. MwSt.)
     )
   )
-  P({font-size: 10, color: #muted} Weitere Informationen zu Preisen und Bedingungen fuer Rabatte befinden sich in der gesondert uebermittelten Preisliste.)
+  P({font-size: 8, color: #muted} Weitere Informationen zu Preisen und Bedingungen für Rabatte befinden sich in der gesondert übermittelten Preisliste.)
 
-  H2({color: #accent} Laufzeit, Verlaengerung und Kuendigung)
-  P(Der Vertrag hat eine Mindestlaufzeit von 24 Monaten und kann mit einer Frist von 1 Monat zum Ende der Mindestlaufzeit gekuendigt werden. Wird der Vertrag nicht zum Ablauf der Mindestlaufzeit gekuendigt, verlaengert er sich auf unbestimmte Zeit und kann jederzeit mit einer Frist von 1 Monat gekuendigt werden.)
+  H2({color: #accent} Laufzeit, Verlängerung und Kündigung)
+  P({font-size: 9} Der Vertrag hat eine Mindestlaufzeit von 24 Monaten und kann mit einer Frist von 1 Monat zum Ende der Mindestlaufzeit gekündigt werden. Wird der Vertrag nicht zum Ablauf der Mindestlaufzeit gekündigt, verlängert er sich auf unbestimmte Zeit und kann jederzeit mit einer Frist von 1 Monat gekündigt werden.)
 
   H2({color: #accent} Sonstige Angaben)
-  P(Diese Vertragszusammenfassung bezieht sich auf einen Abschluss eines neuen Vertrages mit den genannten Tarifkonditionen.)
-  P(Die Energieeffizienzklasse des Geraets sowie Hersteller- und Sicherheitsinformationen finden Sie auf unserer Webseite im Bereich Geraete.)
+  P({font-size: 9} Diese Vertragszusammenfassung bezieht sich auf einen Abschluss eines neuen Vertrages mit den genannten Tarifkonditionen.)
+  P({font-size: 9} Die Energieeffizienzklasse des Geräts sowie Hersteller- und Sicherheitsinformationen finden Sie auf unserer Webseite im Bereich Geräte.)
 
-  H2({color: #accent} Funktionsmerkmale fuer Endnutzer mit Behinderungen)
-  P(Wenn der Tarif Gespraeche beinhaltet, steht die Funktion Echtzeittext zur Verfuegung, sofern das genutzte Endgeraet diese unterstuetzt. Naehere Infos finden sich unter o2online.de/recht/barrierefreiheit/.)
+  H2({color: #accent} Funktionsmerkmale für Endnutzer mit Behinderungen)
+  P({font-size: 9} Wenn der Tarif Gespräche beinhaltet, steht die Funktion Echtzeittext zur Verfügung, sofern das genutzte Endgerät diese unterstützt. Nähere Infos finden sich unter o2online.de/recht/barrierefreiheit/.)
 
-  P({font-size: 9, color: #muted} Artikel 102 Absatz 3 der Richtlinie EU 2018/1972 des Europaeischen Parlaments und Rates vom 11. Dezember 2018 ueber den europaeischen Kodex fuer die elektronische Kommunikation.)
+  P({font-size: 8, color: #muted} Artikel 102 Absatz 3 der Richtlinie EU 2018/1972 des Europäischen Parlaments und Rates vom 11. Dezember 2018 über den europäischen Kodex für die elektronische Kommunikation.)
 )
