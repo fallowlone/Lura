@@ -52,140 +52,140 @@ fn build_css(doc: &Document) -> String {
 
     html, body {{
       height: 100%;
-      background: #0f0f12;
+      background: #e8e8e8;
+      color-scheme: light;
     }}
 
     body {{
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      font-size: 16px;
-      line-height: 1.7;
-      color: #e8e8ed;
-      padding: 48px 24px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #1a1a1a;
+      padding: 32px 24px;
       -webkit-font-smoothing: antialiased;
     }}
 
     .folio-root {{
-      max-width: 860px;
+      max-width: 800px;
       margin: 0 auto;
     }}
 
     .folio-page {{
-      background: #1a1a22;
-      border: 1px solid #2a2a38;
-      border-radius: 16px;
-      padding: 56px 64px;
-      margin-bottom: 32px;
-      box-shadow:
-        0 4px 6px rgba(0, 0, 0, 0.3),
-        0 20px 60px rgba(0, 0, 0, 0.5),
-        inset 0 1px 0 rgba(255,255,255,0.04);
+      background: #ffffff;
+      border-radius: 4px;
+      padding: 48px 56px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
       position: relative;
-      overflow: hidden;
     }}
 
-    .folio-page::before {{
-      content: '';
+    .folio-page::after {{
+      content: '.fol';
       position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(130, 100, 255, 0.4), transparent);
+      bottom: 12px;
+      right: 16px;
+      font-size: 0.6rem;
+      color: #cccccc;
+      font-family: monospace;
+      letter-spacing: 0.05em;
     }}
 
     h1.folio-h1 {{
-      font-size: 2.25rem;
+      font-size: 1.75rem;
       font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.2;
-      margin-bottom: 24px;
-      background: linear-gradient(135deg, #ffffff 0%, #a0a0c0 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+      margin-bottom: 6px;
+      color: #111111;
     }}
 
     h2.folio-h2 {{
-      font-size: 1.6rem;
+      font-size: 1.1rem;
       font-weight: 600;
-      letter-spacing: -0.02em;
-      line-height: 1.3;
-      margin-bottom: 16px;
-      margin-top: 32px;
-      color: #c8c8dd;
+      letter-spacing: -0.01em;
+      line-height: 1.35;
+      margin-bottom: 8px;
+      margin-top: 24px;
+      color: #222222;
     }}
 
     h3.folio-h3 {{
-      font-size: 1.25rem;
+      font-size: 1rem;
       font-weight: 600;
-      letter-spacing: -0.01em;
       line-height: 1.4;
-      margin-bottom: 12px;
-      margin-top: 24px;
-      color: #b0b0cc;
+      margin-bottom: 6px;
+      margin-top: 18px;
+      color: #333333;
     }}
 
     p.folio-p {{
-      font-size: 1rem;
-      font-weight: 400;
-      color: #9090a8;
-      margin-bottom: 16px;
-      max-width: 68ch;
+      font-size: 0.9rem;
+      color: #333333;
+      margin-bottom: 10px;
+      line-height: 1.6;
     }}
 
     .folio-grid {{
       display: grid;
-      gap: 24px;
-      margin-bottom: 16px;
+      gap: 16px;
+      margin-bottom: 12px;
+    }}
+
+    ul.folio-list {{
+      margin: 4px 0 10px 20px;
+      padding: 0;
+    }}
+
+    ul.folio-list li, ol.folio-list li {{
+      font-size: 0.9rem;
+      color: #333333;
+      margin-bottom: 4px;
+      line-height: 1.5;
+    }}
+
+    ol.folio-list {{
+      margin: 4px 0 10px 20px;
+      padding: 0;
     }}
 
     .folio-code {{
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      font-size: 0.875rem;
-      background: #131318;
-      border: 1px solid #2a2a38;
-      border-radius: 8px;
-      padding: 20px 24px;
-      margin-bottom: 16px;
-      color: #7dd3fc;
+      font-size: 0.8rem;
+      background: #f5f5f5;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      color: #333333;
       overflow-x: auto;
       white-space: pre;
     }}
 
-    .folio-badge {{
-      display: inline-block;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.65rem;
-      color: #4a4a6a;
-      position: absolute;
-      bottom: 16px;
-      right: 20px;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }}
-
     .folio-divider {{
       border: none;
-      border-top: 1px solid #2a2a38;
-      margin: 24px 0;
+      border-top: 1px solid #e0e0e0;
+      margin: 16px 0;
     }}
 
     .folio-table {{
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 24px;
-      font-size: 0.95rem;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
     }}
 
     .folio-table td {{
-      padding: 12px 16px;
-      border-bottom: 1px solid #2a2a38;
-      color: #e8e8ed;
+      padding: 8px 12px;
+      border-bottom: 1px solid #eeeeee;
+      color: #222222;
       vertical-align: top;
     }}
 
     .folio-table tr:first-child td {{
       font-weight: 600;
-      color: #8c8cdd;
-      border-bottom: 2px solid #3a3a4c;
+      background: #f5f5f5;
+      border-bottom: 2px solid #dddddd;
+      color: #111111;
     }}
 
     .folio-table tr:last-child td {{
@@ -193,14 +193,14 @@ fn build_css(doc: &Document) -> String {
     }}
 
     .folio-table tr:hover td {{
-      background: rgba(255, 255, 255, 0.02);
+      background: #fafafa;
     }}
 
     .folio-image {{
       max-width: 100%;
       height: auto;
-      border-radius: 8px;
-      margin-bottom: 24px;
+      border-radius: 4px;
+      margin-bottom: 16px;
       display: block;
     }}"#,
         vars_css = vars_css,
@@ -265,6 +265,21 @@ fn render_block(block: &Block, out: &mut String, indent: usize) {
         }
         "HR" | "DIVIDER" => {
             out.push_str(&format!("{}<hr class=\"folio-divider\">\n", pad));
+        }
+        "LIST" => {
+            let ordered = block.attrs.get("type")
+                .and_then(|v| if let Value::Str(s) = v { Some(s.as_str()) } else { None })
+                .map(|s| matches!(s, "ordered" | "ol" | "numbered"))
+                .unwrap_or(false);
+            let tag = if ordered { "ol" } else { "ul" };
+            out.push_str(&format!("{}<{} class=\"folio-list\">\n", pad, tag));
+            render_children(block, out, indent + 1);
+            out.push_str(&format!("{}</{}>\n", pad, tag));
+        }
+        "ITEM" => {
+            let text = escape_html(&extract_text(block));
+            let style = build_inline_style(block);
+            out.push_str(&format!("{}<li{}>{}</li>\n", pad, style, text));
         }
         "GRID" => {
             let style = escape_html(&grid_style(block));
@@ -463,7 +478,7 @@ fn build_inline_style(block: &Block) -> String {
     if let Some(val) = block.attrs.get("font-weight") {
         parts.push(format!("font-weight: {}", value_to_css_inline(val)));
     }
-    if let Some(val) = block.attrs.get("background") {
+    if let Some(val) = block.attrs.get("background").or_else(|| block.attrs.get("background-color")) {
         parts.push(format!("background: {}", value_to_css_inline(val)));
     }
     if let Some(val) = block.attrs.get("margin") {
@@ -483,10 +498,12 @@ fn build_inline_style(block: &Block) -> String {
 /// Build grid-template-columns from GRID columns attr
 fn grid_style(block: &Block) -> String {
     if let Some(val) = block.attrs.get("columns") {
-        format!(
-            "grid-template-columns: {}",
-            value_to_css_inline(val)
-        )
+        let n = match val {
+            Value::Number(n) => *n as usize,
+            Value::Str(s) => s.parse::<usize>().unwrap_or(2),
+            _ => 2,
+        };
+        format!("grid-template-columns: {}", vec!["1fr"; n].join(" "))
     } else {
         "grid-template-columns: 1fr 1fr".to_string()
     }
