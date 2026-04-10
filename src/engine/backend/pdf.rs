@@ -131,13 +131,22 @@ fn build_content_stream(page_height: f32, commands: &[DrawCommand]) -> pdf_write
 
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
-/// Кодирует UTF-8 → Latin-1 (WinAnsi).
-/// Символы вне 0x00–0xFF заменяются на '?'.
+/// Кодирует UTF-8 → WinAnsiEncoding (cp1252).
+/// Стандартный Latin-1 (0x00–0xFF) сохраняется as-is.
+/// Символы WinAnsi из диапазона 0x80–0x9F маппятся явно.
+/// Всё остальное заменяется на '?'.
 /// Ограничение built-in Type1 шрифтов; TrueType + ToUnicode — v3.
 fn encode_latin1(s: &str) -> Vec<u8> {
-    s.chars().map(|c| {
-        let code = c as u32;
-        if code < 256 { code as u8 } else { b'?' }
+    s.chars().map(|c| match c as u32 {
+        code @ 0..=255 => code as u8,
+        0x2022 => 0x95, // • BULLET
+        0x2013 => 0x96, // – EN DASH
+        0x2014 => 0x97, // — EM DASH
+        0x201C => 0x93, // " LEFT DOUBLE QUOTATION MARK
+        0x201D => 0x94, // " RIGHT DOUBLE QUOTATION MARK
+        0x2018 => 0x91, // ' LEFT SINGLE QUOTATION MARK
+        0x2019 => 0x92, // ' RIGHT SINGLE QUOTATION MARK
+        _ => b'?',
     }).collect()
 }
 

@@ -21,8 +21,6 @@ pub fn render(doc: &Document) -> Result<Vec<u8>, String> {
         render_block(block, &mut ops, &mut cursor);
     }
 
-    ops.push(Op::EndTextSection);
-
     pdf.pages.push(PdfPage::new(
         Mm(210.0),
         Mm(297.0),
