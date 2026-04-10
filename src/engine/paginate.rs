@@ -162,7 +162,7 @@ impl<'a> Paginator<'a> {
             self.push_cmd(DrawCommand::Rect {
                 x: block_x,
                 y: self.cursor_y,
-                w: node.width.max(CONTENT_WIDTH_PT),
+                w: node.width.max(1.0),
                 h: estimated_h,
                 fill: Some(bg),
                 stroke: None,

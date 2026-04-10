@@ -46,30 +46,16 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
         return cached;
     }
 
-    let mut pass = 0usize;
-    let max_passes = 2usize;
-    let mut last_fp: Option<u64> = None;
-    let mut bytes = Vec::new();
+    let styled = resolver::build_styled_tree(doc);
+    let _heading_counters = counters::collect_heading_counters(&styled);
+    let layout = layout::compute_layout(&styled);
+    let pages  = paginate::paginate(&layout, &styled);
+    let _introspection = introspection::build_page_introspection(&layout, &pages);
 
-    while pass < max_passes {
-        let styled = resolver::build_styled_tree(doc);
-        let _heading_counters = counters::collect_heading_counters(&styled);
-        let layout = layout::compute_layout(&styled);
-        let pages  = paginate::paginate(&layout, &styled);
-        let _introspection = introspection::build_page_introspection(&layout, &pages);
-
-        bytes = match options.format {
-            ExportFormat::Pdf => backend::pdf::render(&pages),
-            ExportFormat::Svg => backend::svg::render(&pages).into_bytes(),
-        };
-
-        let fp = stable_hash_bytes(&bytes);
-        if last_fp == Some(fp) {
-            break;
-        }
-        last_fp = Some(fp);
-        pass += 1;
-    }
+    let bytes = match options.format {
+        ExportFormat::Pdf => backend::pdf::render(&pages),
+        ExportFormat::Svg => backend::svg::render(&pages).into_bytes(),
+    };
 
     cache_render(key, &bytes);
     bytes
@@ -181,8 +167,3 @@ fn hash_value(v: &Value, hasher: &mut DefaultHasher) {
     }
 }
 
-fn stable_hash_bytes(bytes: &[u8]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    hasher.finish()
-}
