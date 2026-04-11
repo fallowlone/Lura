@@ -788,7 +788,8 @@ pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> Pa
 mod tests {
     use super::*;
     use crate::engine::arena::DocumentArena;
-    use crate::engine::styles::{BoxContent, ResolvedStyles, StyledBox};
+    use crate::engine::layout::LayoutBox;
+    use crate::engine::styles::{BoxContent, InlineRun, ResolvedStyles, StyledBox};
 
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01
@@ -872,6 +873,133 @@ mod tests {
         assert!(
             bg_rect.0 + bg_rect.1 <= A4_WIDTH_PT + 0.01,
             "background must not overflow page width for this narrow cell"
+        );
+    }
+
+    #[test]
+    fn table_cell_children_render_inline_paragraph_content() {
+        let mut arena = DocumentArena::new();
+
+        let paragraph_id = arena.alloc(StyledBox {
+            id: "p-1".to_string(),
+            kind: BoxKind::Paragraph,
+            styles: ResolvedStyles::for_kind(&BoxKind::Paragraph),
+            content: BoxContent::Inline(vec![InlineRun {
+                text: "Feature".to_string(),
+                bold: true,
+                italic: false,
+                code: false,
+                link: None,
+            }]),
+        });
+
+        let cell_styles = ResolvedStyles::for_kind(&BoxKind::Cell);
+        let cell_padding_left = cell_styles.padding.left * MM_TO_PT;
+        let cell_padding_right = cell_styles.padding.right * MM_TO_PT;
+
+        let cell_id = arena.alloc(StyledBox {
+            id: "cell-1".to_string(),
+            kind: BoxKind::Cell,
+            styles: cell_styles,
+            content: BoxContent::Children(vec![paragraph_id]),
+        });
+
+        let row_id = arena.alloc(StyledBox {
+            id: "row-1".to_string(),
+            kind: BoxKind::Row,
+            styles: ResolvedStyles::for_kind(&BoxKind::Row),
+            content: BoxContent::Children(vec![cell_id]),
+        });
+
+        let table_id = arena.alloc(StyledBox {
+            id: "table-1".to_string(),
+            kind: BoxKind::Table,
+            styles: ResolvedStyles::for_kind(&BoxKind::Table),
+            content: BoxContent::Children(vec![row_id]),
+        });
+
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![table_id]),
+        });
+        arena.add_root(page_id);
+
+        let table_x = PAGE_MARGIN_PT;
+        let table_w = 240.0;
+        let row_y = PAGE_MARGIN_PT;
+        let cell_x = table_x;
+        let cell_w = table_w;
+        let paragraph_x = cell_x + cell_padding_left;
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 200.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: table_id,
+                    kind: BoxKind::Table,
+                    x: table_x,
+                    y: row_y,
+                    width: table_w,
+                    height: 80.0,
+                    content: LayoutContent::Children(vec![2]),
+                },
+                LayoutBox {
+                    arena_id: row_id,
+                    kind: BoxKind::Row,
+                    x: table_x,
+                    y: row_y,
+                    width: table_w,
+                    height: 40.0,
+                    content: LayoutContent::Children(vec![3]),
+                },
+                LayoutBox {
+                    arena_id: cell_id,
+                    kind: BoxKind::Cell,
+                    x: cell_x,
+                    y: row_y,
+                    width: cell_w,
+                    height: 40.0,
+                    content: LayoutContent::Children(vec![4]),
+                },
+                LayoutBox {
+                    arena_id: paragraph_id,
+                    kind: BoxKind::Paragraph,
+                    x: paragraph_x,
+                    y: row_y,
+                    width: (cell_w - cell_padding_left - cell_padding_right).max(1.0),
+                    height: 20.0,
+                    content: LayoutContent::Inline(vec![InlineRun {
+                        text: "Feature".to_string(),
+                        bold: true,
+                        italic: false,
+                        code: false,
+                        link: None,
+                    }]),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        let page = pages.pages.first().expect("expected a rendered page");
+
+        let has_feature_text = page.commands.iter().any(|cmd| match cmd {
+            DrawCommand::Text { content, .. } => content.contains("Feature"),
+            _ => false,
+        });
+        assert!(
+            has_feature_text,
+            "table cell content from LayoutContent::Children must render text"
         );
     }
 }
