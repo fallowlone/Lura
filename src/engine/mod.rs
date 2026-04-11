@@ -5,8 +5,6 @@ pub mod layout;
 pub mod text;
 pub mod paginate;
 pub mod backend;
-pub mod counters;
-pub mod introspection;
 
 #[cfg(test)]
 mod pipeline_tests;

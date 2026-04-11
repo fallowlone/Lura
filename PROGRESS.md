@@ -101,7 +101,8 @@ PAGE(
 - [x] Inline layout v1: line builder по run-ам + mixed-style rendering (PDF/SVG)
 - [x] Typography v1: `letter-spacing`, `word-spacing`, базовый `justify`
 - [x] Pagination rules v2 (base): `keep-with-next`, `keep-together`, row split policy switch
-- [x] Global deps foundation: multi-pass convergence guard + `counters`/`introspection` модули
+- [x] Global deps foundation: multi-pass convergence guard
+- [ ] Heading counters и page introspection (заготовки `counters`/`introspection` убраны как dead code; вернуть при TOC/refs)
 - [x] Advanced layout foundation: min/max constraints, float mode (left/right), page header/footer
 - [x] Export parity quality gates: capability matrix + integration smoke tests + cache regression test
 
