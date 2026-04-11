@@ -60,19 +60,22 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
         pages: Vec::new(),
         block_start_page: std::collections::HashMap::new(),
     };
+    // After the first `apply_page_placeholders`, `{{page:…}}` is gone; we must not use that
+    // to exit the loop or we never reflow with substituted digits and never compare fingerprints.
+    let needs_page_passes = introspection::arena_has_page_placeholders(&styled);
     let mut prev_fp: Option<u64> = None;
     for _ in 0..MAX_PAGE_PASSES {
         let layout = layout::compute_layout(&styled);
         page_tree = paginate::paginate(&layout, &styled);
-        if !introspection::arena_has_page_placeholders(&styled) {
+        if !needs_page_passes {
             break;
         }
         let fp = introspection::fingerprint_page_map(&page_tree.block_start_page);
-        // Apply after reading the map; then detect stable maps (no reflow change) to stop.
-        introspection::apply_page_placeholders(&mut styled, &page_tree.block_start_page);
+        // Stable map under current (possibly already substituted) text: done.
         if prev_fp == Some(fp) {
             break;
         }
+        introspection::apply_page_placeholders(&mut styled, &page_tree.block_start_page);
         prev_fp = Some(fp);
     }
 

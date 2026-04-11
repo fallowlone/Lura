@@ -143,7 +143,7 @@ struct WelcomeView: View {
                     ActionCard(
                         systemImage: "plus.circle.fill",
                         title: "New document",
-                        subtitle: "Create a .fol file",
+                        subtitle: "Create a .lura file",
                         accent: .accentColor
                     ) {
                         LuraPanels.presentNewDocument()
