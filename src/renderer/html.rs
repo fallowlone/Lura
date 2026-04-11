@@ -510,30 +510,31 @@ fn build_inline_style(block: &Block) -> String {
 
 /// Build grid-template-columns from GRID columns attr (согласовано с engine resolver).
 fn grid_style(block: &Block) -> String {
-    let tracks: Vec<GridColumnTrack> = match block.attrs.get("columns") {
-        None => vec![GridColumnTrack::Fr(1.0), GridColumnTrack::Fr(1.0)],
-        Some(Value::Str(s)) => {
-            let t = s.trim();
-            if let Ok(parsed) = parse_grid_columns_str(t) {
-                parsed
-            } else if let Ok(n) = t.parse::<usize>() {
-                if n >= 1 {
-                    vec![GridColumnTrack::Fr(1.0); n]
-                } else {
-                    vec![GridColumnTrack::Fr(1.0), GridColumnTrack::Fr(1.0)]
+    let mut tracks = vec![GridColumnTrack::Fr(1.0)];
+    if let Some(value) = block
+        .attrs
+        .get("columns")
+        .or_else(|| block.attrs.get("grid-columns"))
+    {
+        match value {
+            Value::Str(s) => {
+                let t = s.trim();
+                if let Ok(parsed) = parse_grid_columns_str(t) {
+                    tracks = parsed;
+                } else if let Ok(n) = t.parse::<usize>() {
+                    if n >= 1 {
+                        tracks = vec![GridColumnTrack::Fr(1.0); n];
+                    }
                 }
-            } else {
-                vec![GridColumnTrack::Fr(1.0), GridColumnTrack::Fr(1.0)]
             }
+            Value::Number(n) => {
+                tracks = vec![GridColumnTrack::Fr(1.0); (*n as usize).max(1)];
+            }
+            Value::Unit(n, _) => {
+                tracks = vec![GridColumnTrack::Fr(1.0); (*n as usize).max(1)];
+            }
+            _ => {}
         }
-        Some(other) => {
-            let n = match other {
-                Value::Number(n) => (*n as usize).max(1),
-                Value::Unit(n, _) => (*n as usize).max(1),
-                _ => 2,
-            };
-            vec![GridColumnTrack::Fr(1.0); n]
-        }
-    };
+    }
     format!("grid-template-columns: {}", tracks_to_css(&tracks))
 }
