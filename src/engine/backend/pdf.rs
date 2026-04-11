@@ -1,17 +1,17 @@
-/// PDF Backend (Фаза 4)
+/// PDF backend (phase 4)
 ///
-/// Принимает PageTree с DrawCommand-ами и генерирует байты PDF-файла.
-/// Использует крейт `pdf-writer` — низкоуровневый, но быстрый.
+/// Takes a `PageTree` with draw commands and produces PDF file bytes.
+/// Uses the `pdf-writer` crate: low-level but fast.
 ///
-/// Поддерживаемые команды:
-/// - DrawCommand::Text  → PDF BT ... ET (встроенные шрифты: Helvetica / Helvetica-Bold)
-/// - DrawCommand::Rect  → PDF re + f/S
-/// - DrawCommand::Line  → PDF m + l + S
+/// Supported commands:
+/// - `DrawCommand::Text`  → PDF BT ... ET (built-in fonts: Helvetica / Helvetica-Bold)
+/// - `DrawCommand::Rect`  → PDF re + f/S
+/// - `DrawCommand::Line`  → PDF m + l + S
 ///
-/// Система координат:
-/// pdf-writer: левый нижний угол = (0,0), Y растёт вверх.
-/// PageTree:   левый верхний угол = (0,0), Y растёт вниз.
-/// Конвертация: pdf_y = page_height - our_y
+/// Coordinate systems:
+/// pdf-writer: bottom-left = (0,0), Y increases upward.
+/// PageTree:   top-left = (0,0), Y increases downward.
+/// Conversion: `pdf_y = page_height - our_y`
 
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
 use crate::engine::paginate::PageTree;
@@ -55,14 +55,14 @@ impl PainterBackend for PdfBackend {
         pages.count(page_ids.len() as i32);
     }
 
-    // ─── Шрифты (встроенные Type1) ────────────────────────────────────────────
-    // WinAnsiEncoding обязателен: encode_latin1 пишет байты 0x80–0x9F (cp1252).
-    // Без явного Encoding PDF viewer использует StandardEncoding, где 0x91–0x97
-    // не определены — смарт-кавычки, тире и буллиты рендерятся как пустые глифы.
+    // --- Built-in Type1 fonts ---
+    // WinAnsiEncoding is required: encode_latin1 writes bytes 0x80–0x9F (cp1252).
+    // Without an explicit Encoding, viewers use StandardEncoding where 0x91–0x97
+    // are undefined — smart quotes, dashes, and bullets render as empty glyphs.
     pdf.type1_font(font_regular_id).base_font(Name(b"Helvetica")).encoding_predefined(Name(b"WinAnsiEncoding"));
     pdf.type1_font(font_bold_id).base_font(Name(b"Helvetica-Bold")).encoding_predefined(Name(b"WinAnsiEncoding"));
 
-    // ─── Страницы ─────────────────────────────────────────────────────────────
+    // --- Pages ---
     for (i, page) in doc.pages.iter().enumerate() {
         let page_id    = page_ids[i];
         let content_id = content_ids[i];
@@ -125,7 +125,7 @@ fn build_content_stream(page_height: f32, commands: &[PainterCommand]) -> pdf_wr
                     continue;
                 }
 
-                // Y: наш y — top-down baseline, PDF y — bottom-up baseline
+                // Y: our y is top-down baseline; PDF y is bottom-up baseline
                 let pdf_y = page_height - y;
                 let font_name: &[u8] = if *bold { b"F2" } else { b"F1" };
 
@@ -142,13 +142,13 @@ fn build_content_stream(page_height: f32, commands: &[PainterCommand]) -> pdf_wr
     content.finish()
 }
 
-// ─── Утилиты ──────────────────────────────────────────────────────────────────
+// --- Utilities ---
 
-/// Кодирует UTF-8 → WinAnsiEncoding (cp1252).
-/// Стандартный Latin-1 (0x00–0xFF) сохраняется as-is.
-/// Символы WinAnsi из диапазона 0x80–0x9F маппятся явно.
-/// Всё остальное заменяется на '?'.
-/// Ограничение built-in Type1 шрифтов; TrueType + ToUnicode — v3.
+/// Encode UTF-8 → WinAnsiEncoding (cp1252).
+/// Standard Latin-1 (0x00–0xFF) is preserved as-is.
+/// WinAnsi characters in 0x80–0x9F are mapped explicitly.
+/// Everything else becomes '?'.
+/// Limitation of built-in Type1 fonts; TrueType + ToUnicode is planned for v3.
 fn encode_latin1(s: &str) -> Vec<u8> {
     s.chars().map(|c| match c as u32 {
         code @ (0x00..=0x7F | 0xA0..=0xFF) => code as u8,

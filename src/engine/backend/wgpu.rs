@@ -1,7 +1,7 @@
 use super::painter::{PaintDocument, PainterBackend};
 
-/// Каркас будущего GPU preview backend.
-/// Включается feature-флагом `wgpu-preview`.
+/// Scaffold for a future GPU preview backend.
+/// Enabled by the `wgpu-preview` feature flag.
 pub struct WgpuBackend;
 
 impl PainterBackend for WgpuBackend {

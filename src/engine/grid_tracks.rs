@@ -1,4 +1,4 @@
-//! Парсинг `columns` / `grid-template-columns` для GRID: подмножество CSS (fr, px, mm, pt, auto).
+//! Parse `columns` / `grid-template-columns` for GRID: CSS subset (fr, px, mm, pt, auto).
 
 use std::fmt::Write;
 
@@ -7,12 +7,12 @@ use crate::parser::ast::Value;
 use taffy::prelude::*;
 use taffy::style::GridTemplateComponent;
 
-/// Один track колонки grid (после резолва в абсолютные единицы для движка, кроме fr).
+/// One grid column track (after resolve to absolute units for the engine, except `fr`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridColumnTrack {
-    /// Доля `fr` (как в CSS).
+    /// `fr` fraction (CSS semantics).
     Fr(f32),
-    /// Длина в pt (для taffy `length()`).
+    /// Length in pt (for taffy `length()`).
     LengthPt(f32),
     Auto,
 }
@@ -30,10 +30,10 @@ impl GridTrackParseError {
     }
 }
 
-/// CSS px при 96 DPI: 1px = 72/96 pt.
+/// CSS px at 96 DPI: 1px = 72/96 pt.
 const PX_TO_PT: f32 = 72.0 / 96.0;
 
-/// Разбор строки вида `1fr 2fr`, `10mm 1fr`, `auto 1fr`.
+/// Parse a string like `1fr 2fr`, `10mm 1fr`, `auto 1fr`.
 pub fn parse_grid_columns_str(input: &str) -> Result<Vec<GridColumnTrack>, GridTrackParseError> {
     let s = input.trim();
     if s.is_empty() {
@@ -53,10 +53,10 @@ pub fn parse_grid_columns_str(input: &str) -> Result<Vec<GridColumnTrack>, GridT
     Ok(out)
 }
 
-/// Разбор значения attrs для GRID columns:
-/// - строка треков: `1fr 10mm auto`
-/// - число: количество равных `1fr` колонок
-/// - unit-токен: `2fr`, `10mm`, `120px`, `12pt`
+/// Parse a GRID `columns` / `grid-columns` attr value:
+/// - track string: `1fr 10mm auto`
+/// - integer as column count: equal `1fr` tracks
+/// - unit token: `2fr`, `10mm`, `120px`, `12pt`
 pub fn parse_grid_columns_value(value: &Value) -> Option<Vec<GridColumnTrack>> {
     match value {
         Value::Str(s) => {
@@ -75,7 +75,8 @@ pub fn parse_grid_columns_value(value: &Value) -> Option<Vec<GridColumnTrack>> {
         }
         Value::Number(n) => Some(vec![GridColumnTrack::Fr(1.0); (*n as usize).max(1)]),
         Value::Unit(n, unit) => {
-            let token = format!("{}{}", n, unit);
+            let num = format_number_for_grid_unit_token(*n).unwrap_or_else(|| n.to_string());
+            let token = format!("{num}{unit}");
             parse_grid_columns_str(&token).ok()
         }
         _ => None,
@@ -132,7 +133,23 @@ fn parse_track_token(token: &str) -> Result<GridColumnTrack, GridTrackParseError
     )))
 }
 
-/// Количество колонок для пагинации. Пустой слайс = одна колонка `1fr` (как раньше `None`).
+/// Format a number for concatenation with a unit (`2fr`, `10.5mm`) without scientific notation.
+fn format_number_for_grid_unit_token(n: f64) -> Option<String> {
+    if !n.is_finite() {
+        return None;
+    }
+    if n.fract().abs() < 1e-9 {
+        Some(format!("{}", n as i64))
+    } else {
+        let mut s = format!("{:.6}", n);
+        while s.contains('.') && (s.ends_with('0') || s.ends_with('.')) {
+            s.pop();
+        }
+        Some(s)
+    }
+}
+
+/// Column count for pagination. Empty slice means one `1fr` column (same as former `None`).
 pub fn grid_column_count(tracks: &[GridColumnTrack]) -> usize {
     if tracks.is_empty() {
         1
@@ -141,7 +158,7 @@ pub fn grid_column_count(tracks: &[GridColumnTrack]) -> usize {
     }
 }
 
-/// CSS для `grid-template-columns` (согласовано с парсером).
+/// CSS for `grid-template-columns` (matches parser output).
 pub fn tracks_to_css(tracks: &[GridColumnTrack]) -> String {
     let mut s = String::new();
     for (i, tr) in tracks.iter().enumerate() {
@@ -170,7 +187,7 @@ fn fmt_fr(v: f32) -> String {
     }
 }
 
-/// Строит `grid_template_columns` для taffy `Style` (дефолтный `CheapCloneStr` в taffy — `String`).
+/// Build `grid_template_columns` for taffy `Style` (taffy default `CheapCloneStr` is `String`).
 pub fn tracks_to_taffy_components(
     tracks: &[GridColumnTrack],
 ) -> Vec<GridTemplateComponent<String>> {
@@ -223,5 +240,16 @@ mod tests {
     fn parse_value_unit_mm() {
         let t = parse_grid_columns_value(&Value::Unit(10.0, "mm".to_string())).unwrap();
         assert_eq!(t, vec![GridColumnTrack::LengthPt(10.0 * MM_TO_PT)]);
+    }
+
+    #[test]
+    fn parse_value_number_three_equal_fr_columns() {
+        let t = parse_grid_columns_value(&Value::Number(3.0)).unwrap();
+        assert_eq!(t, vec![GridColumnTrack::Fr(1.0); 3]);
+    }
+
+    #[test]
+    fn parse_value_unit_unknown_returns_none() {
+        assert!(parse_grid_columns_value(&Value::Unit(10.0, "em".to_string())).is_none());
     }
 }
