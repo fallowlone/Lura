@@ -411,7 +411,7 @@ impl<'a> Paginator<'a> {
     fn place_grid(&mut self, grid_idx: LayoutNodeIdx, child_indices: Vec<LayoutNodeIdx>) -> f32 {
         let grid_node = self.layout.nodes[grid_idx].clone();
         let grid_styles = self.styled.get(grid_node.arena_id).styles.clone();
-        let cols = grid_styles.grid_columns.unwrap_or(1).max(1);
+        let cols = grid_styles.grid_column_count().max(1);
         let grid_start_y = self.cursor_y;
 
         for row_cells in child_indices.chunks(cols) {

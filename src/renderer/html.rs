@@ -1,3 +1,4 @@
+use crate::engine::grid_tracks::{parse_grid_columns_str, tracks_to_css, GridColumnTrack};
 use crate::parser::ast::{Block, Content, Document, Value};
 
 pub fn render(doc: &Document) -> String {
@@ -507,16 +508,32 @@ fn build_inline_style(block: &Block) -> String {
     }
 }
 
-/// Build grid-template-columns from GRID columns attr
+/// Build grid-template-columns from GRID columns attr (согласовано с engine resolver).
 fn grid_style(block: &Block) -> String {
-    if let Some(val) = block.attrs.get("columns") {
-        let n = match val {
-            Value::Number(n) => *n as usize,
-            Value::Str(s) => s.parse::<usize>().unwrap_or(2),
-            _ => 2,
-        };
-        format!("grid-template-columns: {}", vec!["1fr"; n].join(" "))
-    } else {
-        "grid-template-columns: 1fr 1fr".to_string()
-    }
+    let tracks: Vec<GridColumnTrack> = match block.attrs.get("columns") {
+        None => vec![GridColumnTrack::Fr(1.0), GridColumnTrack::Fr(1.0)],
+        Some(Value::Str(s)) => {
+            let t = s.trim();
+            if let Ok(parsed) = parse_grid_columns_str(t) {
+                parsed
+            } else if let Ok(n) = t.parse::<usize>() {
+                if n >= 1 {
+                    vec![GridColumnTrack::Fr(1.0); n]
+                } else {
+                    vec![GridColumnTrack::Fr(1.0), GridColumnTrack::Fr(1.0)]
+                }
+            } else {
+                vec![GridColumnTrack::Fr(1.0), GridColumnTrack::Fr(1.0)]
+            }
+        }
+        Some(other) => {
+            let n = match other {
+                Value::Number(n) => (*n as usize).max(1),
+                Value::Unit(n, _) => (*n as usize).max(1),
+                _ => 2,
+            };
+            vec![GridColumnTrack::Fr(1.0); n]
+        }
+    };
+    format!("grid-template-columns: {}", tracks_to_css(&tracks))
 }

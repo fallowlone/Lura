@@ -53,6 +53,12 @@ PAGE(
     P({background: #bgSoft, padding: 2} Another left block to increase volume and pagination pressure.)
     P({background: #bgSoft, padding: 2} Another right block with **strong text** and longer content to wrap several times in the same container.)
   )
+
+  P({color: #muted, font-size: 8} Grid track list syntax: proportional columns via fr units.)
+  GRID({columns: "1fr 2fr", gap: 3}
+    P({background: #bgSoft, padding: 2} One third width — track list `1fr 2fr`.)
+    P({background: #bgSoft, padding: 2} Two thirds width — validates parser, taffy, PDF/HTML parity for string columns.)
+  )
 )
 
 PAGE(

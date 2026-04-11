@@ -1,4 +1,5 @@
 use super::arena::NodeId;
+use super::grid_tracks::GridColumnTrack;
 
 /// Вид блока — определяет семантику при лэйауте.
 #[derive(Debug, Clone, PartialEq)]
@@ -111,8 +112,8 @@ pub struct ResolvedStyles {
     /// Тип дисплея (block / grid / flex)
     pub display: Display,
 
-    /// Кол-во колонок в grid (применимо к GRID / TABLE)
-    pub grid_columns: Option<usize>,
+    /// Явные tracks колонок GRID (`columns` в FOL). Пусто = одна колонка `1fr`.
+    pub grid_column_tracks: Vec<GridColumnTrack>,
 
     /// Колонный gap в mm
     pub column_gap: f32,
@@ -157,7 +158,7 @@ impl Default for ResolvedStyles {
             orphans: 2,
             allow_row_split: false,
             display: Display::Block,
-            grid_columns: None,
+            grid_column_tracks: Vec::new(),
             column_gap: 4.0,
             row_gap: 2.0,
             flex_grow: 0.0,
@@ -171,6 +172,12 @@ impl Default for ResolvedStyles {
 }
 
 impl ResolvedStyles {
+    /// Число колонок GRID для пагинации (пустой `grid_column_tracks` → 1).
+    #[inline]
+    pub fn grid_column_count(&self) -> usize {
+        super::grid_tracks::grid_column_count(&self.grid_column_tracks)
+    }
+
     /// Сенсибл-дефолты для конкретного вида блока
     pub fn for_kind(kind: &BoxKind) -> Self {
         let mut s = Self::default();

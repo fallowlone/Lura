@@ -6,6 +6,7 @@
 
 use crate::parser::ast::{Block, Content, Document, InlineNode, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
+use super::grid_tracks::{parse_grid_columns_str, GridColumnTrack};
 use super::styles::{
     BoxContent, BoxKind, Color, Display, EdgeInsets, FloatMode, FontStyle, FontWeight, InlineRun,
     ListStyle, ResolvedStyles, StyledBox, TextAlign,
@@ -231,8 +232,23 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
                 }
             }
             "columns" | "grid-columns" => {
-                if let Some(v) = value_to_f32(value) {
-                    styles.grid_columns = Some(v as usize);
+                match value {
+                    Value::Str(s) => {
+                        let t = s.trim();
+                        if let Ok(tracks) = parse_grid_columns_str(t) {
+                            styles.grid_column_tracks = tracks;
+                        } else if let Ok(n) = t.parse::<usize>() {
+                            if n >= 1 {
+                                styles.grid_column_tracks = vec![GridColumnTrack::Fr(1.0); n];
+                            }
+                        }
+                    }
+                    _ => {
+                        if let Some(v) = value_to_f32(value) {
+                            let n = v.max(1.0) as usize;
+                            styles.grid_column_tracks = vec![GridColumnTrack::Fr(1.0); n.max(1)];
+                        }
+                    }
                 }
             }
             "column-gap" | "gap" => {
