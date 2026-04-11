@@ -1,7 +1,7 @@
 use super::arena::NodeId;
 use super::grid_tracks::GridColumnTrack;
 
-/// Вид блока — определяет семантику при лэйауте.
+/// Block kind: drives layout semantics.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoxKind {
     Page,
@@ -21,7 +21,7 @@ pub enum BoxKind {
     Unknown(String),
 }
 
-/// Стиль нумерации списка.
+/// List numbering style.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ListStyle {
     Bullet,
@@ -54,7 +54,7 @@ impl BoxKind {
         }
     }
 
-    /// Является ли блок строчным (inline) контейнером текста
+    /// Whether this block is an inline text container
     pub fn is_text_container(&self) -> bool {
         matches!(
             self,
@@ -68,12 +68,12 @@ impl BoxKind {
     }
 }
 
-/// Абсолютно разрешённые стили узла.
-/// После резолвинга здесь нет переменных (#var), нет процентов — только
-/// конкретные значения в pt/mm.
+/// Fully resolved styles for a node.
+/// After resolution there are no `#var` references or percentages, only
+/// concrete values in pt/mm.
 #[derive(Debug, Clone)]
 pub struct ResolvedStyles {
-    /// Размер шрифта в pt
+    /// Font size in pt
     pub font_size: f32,
     pub font_family: String,
     pub font_weight: FontWeight,
@@ -85,25 +85,25 @@ pub struct ResolvedStyles {
     pub margin: EdgeInsets,
     pub padding: EdgeInsets,
 
-    /// Ширина блока (если задана явно)
+    /// Block width when set explicitly
     pub width: Option<f32>,
-    /// Высота блока (если задана явно)
+    /// Block height when set explicitly
     pub height: Option<f32>,
     pub min_width: Option<f32>,
     pub max_width: Option<f32>,
     pub min_height: Option<f32>,
     pub max_height: Option<f32>,
 
-    /// Межстрочный интервал (коэффициент × font_size)
+    /// Line height (factor × font_size)
     pub line_height: f32,
 
-    /// Выравнивание текста
+    /// Text alignment
     pub text_align: TextAlign,
-    /// Добавочное расстояние между буквами (pt)
+    /// Extra spacing between letters (pt)
     pub letter_spacing: f32,
-    /// Добавочное расстояние между словами (pt)
+    /// Extra spacing between words (pt)
     pub word_spacing: f32,
-    /// Принудительный justify для текстовых блоков
+    /// Force justified text for text blocks
     pub justify: bool,
     pub keep_together: bool,
     pub keep_with_next: bool,
@@ -111,20 +111,20 @@ pub struct ResolvedStyles {
     pub orphans: usize,
     pub allow_row_split: bool,
 
-    /// Тип дисплея (block / grid / flex)
+    /// Display type (block / grid / flex)
     pub display: Display,
 
-    /// Явные tracks колонок GRID (`columns` в FOL). Пусто = одна колонка `1fr`.
+    /// Explicit GRID column tracks (`columns` in FOL). Empty = one `1fr` column.
     pub grid_column_tracks: Vec<GridColumnTrack>,
 
-    /// Колонный gap в mm
+    /// Column gap in mm
     pub column_gap: f32,
     pub row_gap: f32,
 
-    /// flex-grow для ячеек таблицы (управляет пропорциями колонок)
+    /// flex-grow for table cells (column width proportions)
     pub flex_grow: f32,
 
-    /// Стиль нумерации списка
+    /// List numbering style
     pub list_style: ListStyle,
     pub float: FloatMode,
     pub anchor: Option<String>,
@@ -174,70 +174,75 @@ impl Default for ResolvedStyles {
 }
 
 impl ResolvedStyles {
-    /// Число колонок GRID для пагинации (пустой `grid_column_tracks` → 1).
+    /// GRID column count for pagination (empty `grid_column_tracks` → 1).
     #[inline]
     pub fn grid_column_count(&self) -> usize {
         super::grid_tracks::grid_column_count(&self.grid_column_tracks)
     }
 
-    /// Сенсибл-дефолты для конкретного вида блока
+    /// Sensible defaults for a given block kind (parent-independent baseline).
     pub fn for_kind(kind: &BoxKind) -> Self {
         let mut s = Self::default();
+        s.apply_kind_defaults(kind);
+        s
+    }
+
+    /// Apply block-kind defaults on top of accumulated styles (e.g. after inheriting from the parent).
+    pub fn apply_kind_defaults(&mut self, kind: &BoxKind) {
         match kind {
             BoxKind::Heading(1) => {
-                s.font_size = 14.0;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(0.0, 0.0, 4.0, 0.0);
+                self.font_size = 14.0;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(0.0, 0.0, 4.0, 0.0);
             }
             BoxKind::Heading(2) => {
-                s.font_size = 10.5;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(5.0, 0.0, 2.0, 0.0);
+                self.font_size = 10.5;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(5.0, 0.0, 2.0, 0.0);
             }
             BoxKind::Heading(3) => {
-                s.font_size = 10.0;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
+                self.font_size = 10.0;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Heading(_) => {
-                s.font_size = 10.0;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
+                self.font_size = 10.0;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Cell => {
-                s.padding = EdgeInsets::new(1.5, 2.0, 1.5, 2.0);
-                s.flex_grow = 1.0;
+                self.padding = EdgeInsets::new(1.5, 2.0, 1.5, 2.0);
+                self.flex_grow = 1.0;
             }
             BoxKind::List => {
-                s.padding = EdgeInsets::new(0.0, 0.0, 0.0, 6.0); // 6mm left indent for items
-                s.margin = EdgeInsets::new(0.0, 0.0, 2.0, 0.0);
+                self.padding = EdgeInsets::new(0.0, 0.0, 0.0, 6.0); // 6mm left indent for items
+                self.margin = EdgeInsets::new(0.0, 0.0, 2.0, 0.0);
             }
             BoxKind::ListItem => {
-                s.margin = EdgeInsets::new(0.0, 0.0, 1.5, 0.0);
+                self.margin = EdgeInsets::new(0.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Code => {
-                s.font_family = "Courier".to_string();
-                s.font_size = 10.0;
-                s.background = Some(Color::from_hex(0xF5F5F5));
-                s.padding = EdgeInsets::uniform(4.0);
+                self.font_family = "Courier".to_string();
+                self.font_size = 10.0;
+                self.background = Some(Color::from_hex(0xF5F5F5));
+                self.padding = EdgeInsets::uniform(4.0);
             }
             BoxKind::Quote => {
-                s.margin = EdgeInsets::new(0.0, 8.0, 4.0, 8.0);
-                s.color = Color::from_hex(0x666666);
+                self.margin = EdgeInsets::new(0.0, 8.0, 4.0, 8.0);
+                self.color = Color::from_hex(0x666666);
             }
             BoxKind::Hr => {
-                s.margin = EdgeInsets::new(3.0, 0.0, 3.0, 0.0);
+                self.margin = EdgeInsets::new(3.0, 0.0, 3.0, 0.0);
             }
             BoxKind::Figure => {
-                s.margin = EdgeInsets::new(2.0, 0.0, 4.0, 0.0);
+                self.margin = EdgeInsets::new(2.0, 0.0, 4.0, 0.0);
             }
             _ => {}
         }
-        s
     }
 }
 
-/// Контент узла — либо текст, либо список дочерних NodeId
+/// Node content: plain text or child `NodeId` list
 #[derive(Debug, Clone)]
 pub enum BoxContent {
     Text(String),
@@ -255,8 +260,8 @@ pub struct InlineRun {
     pub link: Option<String>,
 }
 
-/// Основная единица Styled Tree.
-/// Содержит полностью разрешённые стили и ссылки на детей по NodeId.
+/// Primary unit of the styled tree.
+/// Holds fully resolved styles and child references by `NodeId`.
 #[derive(Debug, Clone)]
 pub struct StyledBox {
     pub id: String,
@@ -265,7 +270,7 @@ pub struct StyledBox {
     pub content: BoxContent,
 }
 
-// ─── вспомогательные типы ─────────────────────────────────────────────────────
+// --- Helper types ---
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -286,7 +291,7 @@ impl Color {
         }
     }
 
-    /// Разбирает строки вида "#FF0000", "#FFF", "red", "black"
+    /// Parse strings like "#FF0000", "#FFF", "red", "black"
     pub fn from_str(s: &str) -> Option<Self> {
         let s = s.trim().trim_start_matches('#');
         match s {

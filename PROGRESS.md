@@ -1,49 +1,49 @@
-# PROGRESS.md — doc-format project
+# PROGRESS.md — Folio (doc format)
 
-**Обновлено:** 11 апреля 2026
-
----
-
-## Брендинг и файлы (план)
-
-- **Переименование проекта:** **Lura** (вместо рабочего имени Folio в описании формата и продукте).
-- **Расширение файла документа:** **`.lura`**.
-- Репозиторий/крейт `folio` могут переименовываться позже; миграция синтаксиса, CLI, доков и примеров — отдельная задача после решения о нейминге в коде.
+**Updated:** 2026-04-11
 
 ---
 
-## Графика и композитинг (дорожная карта)
+## Branding and files (plan)
 
-Цель: маски, группы прозрачности, нестандартные шрифты, богатый графический стек (см. обсуждение PDF-подобной модели).
-
-**Детальный план по фазам A–E:** [docs/GRAPHICS_ROADMAP.md](docs/GRAPHICS_ROADMAP.md)  
-(шрифты → простая opacity → clip → группы + blend modes → SMask / сложные маски; отдельно — расширение IR вместо плоского `DrawCommand`-only пути).
-
----
-
-## Текущая фаза: Render Engine v2 (Rust)
-
-**Статус:** активная разработка
+- **Public format name:** **Lura** (replacing the working name Folio in product/spec copy).
+- **Document file extension:** **`.lura`**.
+- Repo/crate `folio` may be renamed later; syntax, CLI, docs, and examples migration is a separate decision after naming in code is settled.
 
 ---
 
-## Стек
+## Graphics and compositing (roadmap)
 
-- Язык: Rust
-- Режим: Claude Code пишет код, Artem архитектурит и ревьюит
+Goal: masks, transparency groups, non-standard fonts, richer graphics stack (PDF-like model discussion).
+
+**Phased plan A–E:** [docs/GRAPHICS_ROADMAP.md](docs/GRAPHICS_ROADMAP.md)  
+(fonts → simple opacity → clip → groups + blend modes → SMask / complex masks; separately — IR growth beyond flat `DrawCommand`-only paths.)
 
 ---
 
-## Format specification — прогресс
+## Current phase: Render Engine v2 (Rust)
 
-- [x] Базовый синтаксис определён на бумаге
-- [x] Типы блоков: heading, paragraph, table, figure, code (`H1`–`H6`, `P`, `TABLE`/`ROW`/`CELL`, `FIGURE`/`IMAGE`, `CODE`; PDF: placeholder для пустого asset)
-- [x] Layout: grid-based (не coordinate-based)
-- [x] Block ID схема
-- [x] Certificate схема
+**Status:** active development
+
+---
+
+## Stack
+
+- Language: Rust
+- Workflow: AI-assisted implementation; Artem owns architecture and review
+
+---
+
+## Format specification — progress
+
+- [x] Core syntax sketched on paper
+- [x] Core block types: heading, paragraph, table, **figure**, code (`H1`–`H6`, `P`, `TABLE`/`ROW`/`CELL`, `FIGURE`/`IMAGE`, `CODE`; PDF: placeholder for empty asset); full spec vs vision still partial in places
+- [x] Layout: grid-based (not coordinate-based)
+- [x] Block ID scheme
+- [x] Certificate scheme (design level)
 - [x] Asset handling: inline (base64) vs linked (hash)
 
-### Синтаксис (черновик)
+### Syntax (draft)
 
 ```
 STYLES({
@@ -58,89 +58,104 @@ PAGE(
 
   H1({color: #mainColor} Hello World)
 
-  P(Текст параграфа)
+  P(Paragraph text.)
 
   GRID({columns: "1fr 2fr"}
-    P(Левая колонка)
-    P(Правая колонка)
+    P(Left column)
+    P(Right column)
   )
 )
 ```
 
-Правила:
+Rules:
 
-- Блок: `TYPE({атрибуты} контент)` или `TYPE(контент)`
-- Атрибуты опциональны
-- STYLES всегда первый блок (документ и страница)
-- Переменные: `#name`, доступны везде (два прохода парсера)
-- Grid: columns = фиксированные / пропорции (fr) / auto
+- Block: `TYPE({attrs} content)` or `TYPE(content)`
+- Attributes optional
+- `STYLES` is always the first block (document and page)
+- Variables: `#name`, resolved globally (two parser passes)
+- Grid `columns`: fixed lengths, `fr`, `auto`
 
 ---
 
-## Renderer — прогресс
+## Renderer — progress
 
 - [x] AST → JSON
 - [x] AST → plain text
-- [x] AST → plain text: `CELL` с `Content::Children` рендерит через `render_children` (как HTML), а не только `extract_text`
+- [x] AST → plain text: `CELL` with `Content::Children` renders via `render_children` (like HTML), not only `extract_text`
 - [x] AST → HTML
-- [x] Engine v2: StyledTree -> LayoutTree -> PageTree -> PDF (`pdf-writer`)
-- [x] Удалён legacy PDF путь на `printpdf`
+- [x] Engine v2: StyledTree → LayoutTree → PageTree → PDF (`pdf-writer`)
+- [x] Engine v2: SVG export
+- [x] Legacy PDF path (`printpdf`) removed
 
-## Lexer — прогресс
+---
 
-- [x] Определены токены
-- [x] Написан базовый Lexer (mode-based: Normal / Attrs / Content)
-- [x] Тесты для всех типов токенов
+## Lexer — progress
 
-## Parser — прогресс
+- [x] Token set defined
+- [x] Mode-based lexer (Normal / Attrs / Content)
+- [x] Tests for token kinds
 
-- [x] AST определён (Document, Block, Content, Value)
-- [x] Базовый Parser: токены → AST
-- [x] Переменные: подстановка #var в атрибутах (два прохода)
-- [x] Тесты
-- [x] AST переведён на arena-модель (`NodeId`, `Content::Children`)
-- [x] `id::assign_ids` переведён на post-order обход по ID
-- [x] API AST очищен: внешние модули используют методы `Document`, а не внутренние поля arena
+---
+
+## Parser — progress
+
+- [x] AST types (`Document`, `Block`, `Content`, `Value`)
+- [x] Parser: tokens → AST
+- [x] Variables: `#var` substitution in attrs (two passes)
+- [x] Tests
+- [x] Arena AST (`NodeId`, `Content::Children`)
+- [x] `id::assign_ids` post-order by ID
+- [x] `Document` API for external modules (no raw arena fields)
 - [x] Inline AST v1: `TextRun`, `Emphasis`, `Strong`, `CodeSpan`, `LinkSpan`
 
 ---
 
-## Engine v2 — прогресс
+## Engine v2 — progress
 
-- [x] Data-oriented Styled Arena (`id-arena`)
-- [x] Интеграция `taffy` для layout (Grid/Flex)
-- [x] Пагинация `LayoutTree -> PageTree` (A4)
-- [x] `unicode-linebreak` для переносов
-- [x] `fontdb` для системных шрифтов
-- [x] `rustybuzz` shaping для измерения текста
-- [x] PDF backend на `pdf-writer`
-- [x] Каркас Painter API
-- [x] WGPU preview под feature `wgpu-preview`: `PaintDocument` → PNG (`wgpu` 28 + `glyphon`)
-- [x] Inline layout v1: line builder по run-ам + mixed-style rendering (PDF/SVG)
-- [x] Typography v1: `letter-spacing`, `word-spacing`, базовый `justify`
-- [x] Pagination rules v2 (base): `keep-with-next`, `keep-together`, row split policy switch
-- [x] Global deps foundation: multi-pass convergence guard + `counters`/`introspection` модули
-- [x] Advanced layout foundation: min/max constraints, float mode (left/right), page header/footer
-- [x] Export parity quality gates: capability matrix + integration smoke tests + cache regression test
-
----
-
-## Открытые вопросы
-
-- Точная стратегия переименования: только продукт/спека или также `Cargo.toml`/crate name и GitHub repo.
-- Подмножество «Lura Graphics 1.0» для первого релиза графики (см. GRAPHICS_ROADMAP).
+- [x] Data-oriented styled arena (`id-arena`)
+- [x] `taffy` layout (Grid/Flex)
+- [x] Pagination `LayoutTree → PageTree` (A4)
+- [x] `unicode-linebreak` for breaks
+- [x] `fontdb` for system fonts
+- [x] `rustybuzz` shaping for measurement
+- [x] PDF backend (`pdf-writer`, built-in Type1 + WinAnsi; TrueType/ToUnicode = future)
+- [x] Painter API skeleton
+- [x] WGPU backend scaffold behind `wgpu-preview` (stub; optional deps include `wgpu` 28 + `glyphon`)
+- [x] Inline layout v1: line builder over runs + mixed-style PDF/SVG
+- [x] Typography v1: `letter-spacing`, `word-spacing`, basic `justify`
+- [x] Pagination rules v2 (base): `keep-with-next`, `keep-together`, row split policy
+- [x] Global deps foundation: multi-pass convergence guard
+- [ ] Heading counters and page introspection (`counters` / `introspection` stubs removed as dead code on this branch; restore for TOC/refs)
+- [x] Advanced layout foundation: min/max constraints, float (left/right), page header/footer
+- [x] Export parity: capability matrix + integration smoke tests + cache regression test
 
 ---
 
-## Решения принятые
+## CLI — progress
 
-- Язык реализации: Rust
-- Семантические блоки вместо визуальных координат
-- Diff-friendly: стабильные block ID
-- Два режима ассетов: self-contained (base64) и linked (external + hash)
-- Верификация без центрального CA — самодостаточная
-- Синтаксис формата: human-readable текстовый (не JSON/YAML)
-- Sparse layout: координаты в абсолютных единицах (mm)
-- Certificate: SHA-256 хеш всего документа
-- Folio = формат хранения; редактор и authoring syntax — отдельные проекты поверх
-- **План:** публичное имя формата **Lura**, расширение **`.lura`** (см. выше)
+- [x] `parse` — token dump
+- [x] `validate` — syntax check
+- [x] `convert` — json, text, html, pdf, svg
+- [x] `render` — PDF via engine v2
+- [x] `printers` / `print` — CUPS (`lp` / `lpr`) integration (Unix-oriented)
+
+---
+
+## Open questions
+
+- Rename scope: product/spec only vs also `Cargo.toml`/crate name and GitHub repo.
+- «Lura Graphics 1.0» subset for the first graphics release (see GRAPHICS_ROADMAP).
+
+---
+
+## Decisions locked in
+
+- Implementation language: Rust
+- Semantic blocks, not visual coordinates
+- Diff-friendly stable block IDs
+- Assets: self-contained (base64) vs linked (external + hash)
+- Verification without central CA (self-contained)
+- Storage syntax: human-readable text (not JSON/YAML)
+- Sparse layout: absolute units (mm) in authored model; engine uses pt
+- Certificate: SHA-256 over document (design)
+- Folio = storage format; editors and alternate authoring layers are separate

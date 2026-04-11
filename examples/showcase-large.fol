@@ -37,7 +37,7 @@ PAGE(
     ROW(
       CELL(P(Global refs))
       CELL(P({color: #warn} Foundation))
-      CELL(P(Counters and introspection module prepared))
+      CELL(P(Counters and page map: planned, not wired yet))
     )
     ROW(
       CELL(P(Export parity))
@@ -104,8 +104,8 @@ PAGE(
     ROW(CELL(P(009)) CELL(P(CLI)) CELL(P(Convert, render, print, and printer listing commands.)) CELL(P(Tools)))
     ROW(CELL(P(010)) CELL(P(Tests)) CELL(P(Unit and integration smoke validation.)) CELL(P(QA)))
     ROW(CELL(P(011)) CELL(P(Assets)) CELL(P(Planned linked/hash asset model support.)) CELL(P(Format)))
-    ROW(CELL(P(012)) CELL(P(Counters)) CELL(P(Heading counters and global pass foundations.)) CELL(P(Engine)))
-    ROW(CELL(P(013)) CELL(P(Introspection)) CELL(P(Page-level mapping for future refs/TOC.)) CELL(P(Engine)))
+    ROW(CELL(P(012)) CELL(P(Counters)) CELL(P(Planned: heading counters when global pass is integrated.)) CELL(P(Engine)))
+    ROW(CELL(P(013)) CELL(P(Introspection)) CELL(P(Planned: page-level map for refs and TOC.)) CELL(P(Engine)))
     ROW(CELL(P(014)) CELL(P(Parity)) CELL(P(Capability matrix and regression checks.)) CELL(P(QA)))
     ROW(CELL(P(015)) CELL(P(Optimization)) CELL(P(Cache hit/miss budgeting and profiling hooks.)) CELL(P(Perf)))
     ROW(CELL(P(016)) CELL(P(Printer)) CELL(P(lp/lpr fallback with dry-run mode.)) CELL(P(Tools)))
