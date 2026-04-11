@@ -784,3 +784,94 @@ pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> Pa
 
     PageTree { pages: pager.pages }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::arena::DocumentArena;
+    use crate::engine::styles::{BoxContent, ResolvedStyles, StyledBox};
+
+    fn approx_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    #[test]
+    fn place_node_background_uses_node_width_for_narrow_cells() {
+        let mut arena = DocumentArena::new();
+
+        let mut cell_styles = ResolvedStyles::for_kind(&BoxKind::Cell);
+        let bg = Color::from_hex(0xD1D5DB);
+        cell_styles.background = Some(bg);
+
+        let cell_id = arena.alloc(StyledBox {
+            id: "cell-1".to_string(),
+            kind: BoxKind::Cell,
+            styles: cell_styles,
+            content: BoxContent::Text("Narrow grid cell".to_string()),
+        });
+
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![cell_id]),
+        });
+        arena.add_root(page_id);
+
+        let cell_x = 301.0;
+        let cell_w = 120.0;
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 200.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: cell_id,
+                    kind: BoxKind::Cell,
+                    x: cell_x,
+                    y: PAGE_MARGIN_PT,
+                    width: cell_w,
+                    height: 40.0,
+                    content: LayoutContent::Text("Narrow grid cell".to_string()),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        let page = pages.pages.first().expect("expected a rendered page");
+
+        let bg_rect = page
+            .commands
+            .iter()
+            .find_map(|cmd| match cmd {
+                DrawCommand::Rect {
+                    x,
+                    y: _,
+                    w,
+                    h: _,
+                    fill,
+                    stroke: _,
+                    stroke_width: _,
+                } if *fill == Some(bg) => Some((*x, *w)),
+                _ => None,
+            })
+            .expect("expected background rect for cell");
+
+        assert!(approx_eq(bg_rect.0, cell_x), "background x must match cell x");
+        assert!(
+            approx_eq(bg_rect.1, cell_w),
+            "background width must match cell width"
+        );
+        assert!(
+            bg_rect.0 + bg_rect.1 <= A4_WIDTH_PT + 0.01,
+            "background must not overflow page width for this narrow cell"
+        );
+    }
+}
