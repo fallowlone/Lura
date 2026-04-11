@@ -187,7 +187,7 @@ impl ResolvedStyles {
         s
     }
 
-    /// Дефолты вида блока поверх уже накопленных стилей (например после наследования от родителя).
+    /// Apply block-kind defaults on top of accumulated styles (e.g. after inheriting from the parent).
     pub fn apply_kind_defaults(&mut self, kind: &BoxKind) {
         match kind {
             BoxKind::Heading(1) => {
