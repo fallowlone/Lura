@@ -1,8 +1,8 @@
-/// Конвертирует AST парсера в StyledTree (Arena of StyledBoxes).
+/// Converts parser AST into a StyledTree (arena of StyledBoxes).
 ///
-/// Два прохода:
-/// 1. Конвертация узлов в StyledBox с дефолтными стилями + явными attrs
-/// 2. Наследование стилей от родителя к ребёнку (font-size, color, etc.)
+/// Two passes:
+/// 1. Convert nodes to StyledBox with default styles + explicit attrs
+/// 2. Inherit styles from parent to child (font-size, color, etc.)
 
 use crate::parser::ast::{Block, Content, Document, InlineNode, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
@@ -12,8 +12,8 @@ use super::styles::{
     ListStyle, ResolvedStyles, StyledBox, TextAlign,
 };
 
-/// Основная точка входа.
-/// Принимает Document (из парсера), возвращает DocumentArena.
+/// Main entry point.
+/// Takes `Document` from the parser, returns `DocumentArena`.
 pub fn build_styled_tree(doc: &Document) -> DocumentArena {
     let mut arena = DocumentArena::new();
 
@@ -28,8 +28,8 @@ pub fn build_styled_tree(doc: &Document) -> DocumentArena {
     arena
 }
 
-/// Рекурсивно конвертирует блок AST → StyledBox в арене.
-/// `parent_styles` — уже разрешённые стили родителя (для наследования).
+/// Recursively converts an AST block to a StyledBox in the arena.
+/// `parent_styles` are the parent's resolved styles (for inheritance).
 fn convert_block(
     doc: &Document,
     ast_node_id: AstNodeId,
@@ -39,26 +39,26 @@ fn convert_block(
     let block = doc.block(ast_node_id);
     let kind = BoxKind::from_str(&block.kind);
 
-    // Начинаем со стилей по умолчанию для этого вида блока
+    // Start from defaults for this block kind
     let mut styles = ResolvedStyles::for_kind(&kind);
 
-    // Наследуем от родителя (только наследуемые свойства)
+    // Inherit from parent (inheritable properties only)
     if let Some(parent) = parent_styles {
         inherit_styles(&mut styles, parent);
     }
 
-    // Применяем явные attrs блока (переопределяют дефолты и наследование)
+    // Apply explicit block attrs (override defaults and inheritance)
     apply_attrs(&mut styles, block);
 
-    // Конвертируем контент
+    // Convert content
     let content = match &block.content {
         Content::Text(s) => BoxContent::Text(s.clone()),
         Content::Inline(nodes) => BoxContent::Inline(flatten_inline(nodes, false, false, None)),
         Content::Empty => BoxContent::Empty,
         Content::Children(children) => {
-            // Сначала аллоцируем узел без детей
-            // Затем рекурсивно аллоцируем детей
-            // (нельзя иметь mutable borrow на arena и styles одновременно)
+            // Allocate the node without children first
+            // Then recursively allocate children
+            // (cannot hold mutable borrows of arena and styles at the same time)
             let child_ids: Vec<_> = children
                 .iter()
                 .filter(|child_id| doc.block(**child_id).kind != "STYLES")
@@ -78,8 +78,8 @@ fn convert_block(
     arena.alloc(node)
 }
 
-/// Копирует наследуемые CSS-свойства от родителя к ребёнку.
-/// Только то, что реально наследуется в типографике:
+/// Copies inheritable CSS properties from parent to child.
+/// Only what typography actually inherits:
 /// font-*, color, line-height, text-align.
 fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.font_size = parent.font_size;
@@ -91,7 +91,7 @@ fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.text_align = parent.text_align;
 }
 
-/// Применяет явные attrs блока поверх уже накопленных стилей.
+/// Applies explicit block attrs on top of accumulated styles.
 fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
     for (key, value) in &block.attrs {
         match key.as_str() {

@@ -1,11 +1,28 @@
 //! Integration checks for Document → layout → pagination.
 
+use crate::engine::arena::{DocumentArena, NodeId};
+use crate::engine::grid_tracks::GridColumnTrack;
 use crate::engine::layout::compute_layout;
 use crate::engine::paginate::paginate;
 use crate::engine::resolver::build_styled_tree;
-use crate::engine::styles::BoxKind;
+use crate::engine::styles::{BoxContent, BoxKind, StyledBox};
 use crate::lexer::Lexer;
 use crate::parser::{self, Parser};
+
+fn find_first_grid<'a>(styled: &'a DocumentArena, id: NodeId) -> Option<&'a StyledBox> {
+    let node = styled.get(id);
+    if matches!(node.kind, BoxKind::Grid) {
+        return Some(node);
+    }
+    if let BoxContent::Children(children) = &node.content {
+        for &cid in children {
+            if let Some(g) = find_first_grid(styled, cid) {
+                return Some(g);
+            }
+        }
+    }
+    None
+}
 
 fn load_fol(src: &str) -> crate::parser::ast::Document {
     let mut lexer = Lexer::new(src);
@@ -40,7 +57,7 @@ fn five_page_blocks_yield_five_physical_pages() {
     );
 }
 
-/// GRID с `columns: "1fr 2fr"` даёт ширины ячеек в соотношении ~1:2 (taffy + extract_layout).
+/// GRID with `columns: "1fr 2fr"` yields cell widths in roughly a 1:2 ratio (taffy + extract_layout).
 #[test]
 fn grid_1fr_2fr_column_width_ratio() {
     let fol = r#"
@@ -76,5 +93,28 @@ PAGE(
         "expected width ratio w_left/w_right ≈ 0.5 for 1fr:2fr, got {ratio} (left={w_left} right={w_right})"
     );
 
+    let _ = paginate(&layout, &styled);
+}
+
+/// Unquoted `columns: 2fr` is one `2fr` track, not two `1fr` columns.
+#[test]
+fn grid_unquoted_2fr_single_column_track() {
+    let fol = r#"
+PAGE(
+  GRID({columns: 2fr}
+    P(Solo)
+  )
+)
+"#;
+    let doc = load_fol(fol);
+    let styled = build_styled_tree(&doc);
+    let root = *styled.roots.first().expect("root");
+    let grid = find_first_grid(&styled, root).expect("GRID node");
+    assert_eq!(
+        grid.styles.grid_column_tracks,
+        vec![GridColumnTrack::Fr(2.0)],
+        "unquoted 2fr must be one 2fr track"
+    );
+    let layout = compute_layout(&styled);
     let _ = paginate(&layout, &styled);
 }

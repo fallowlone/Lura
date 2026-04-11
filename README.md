@@ -35,7 +35,7 @@ PAGE(
 )
 ```
 
-**Blocks:** `H1`, `H2`, `H3`, `P`, `PAGE`, `GRID`, `IMAGE`, `STYLES`
+**Blocks (examples):** `H1`–`H6`, `P`, `PAGE`, `GRID`, `TABLE` / `ROW` / `CELL`, `LIST` / `ITEM`, `IMAGE`, `CODE`, `QUOTE`, `HR`, `STYLES`
 
 **Attributes:** `{key: value}` — optional, before content
 
@@ -43,14 +43,25 @@ PAGE(
 
 ## Status
 
-Early development. Not ready for use.
+Early development. The pipeline works for experimentation; the **written specification**, **diff tooling**, and **full vision coverage** (figures, certificates, rich PDF fonts) are not done.
 
-- [x] Lexer
-- [x] Parser + variable resolution
-- [x] Renderer: JSON, plain text
-- [ ] CLI
-- [ ] PDF export
-- [ ] Format specification
+### Done (high level)
+
+- [x] Lexer and parser (arena AST, variables, inline spans, stable IDs)
+- [x] Exports: JSON, plain text, HTML
+- [x] Layout engine v2: taffy → A4 pagination → PDF (`pdf-writer`) and SVG
+- [x] CLI: `parse`, `validate`, `convert` (json | text | html | pdf | svg), `render`, `printers`, `print` (CUPS on Unix)
+
+### Not done / partial
+
+- [ ] Published format specification (normative doc)
+- [ ] `diff` (and merge helpers) on documents or block IDs
+- [ ] Certificate generation and verification in tooling
+- [ ] PDF: embedded TrueType + full Unicode (current path uses built-in Type1 + WinAnsi)
+- [ ] WGPU live preview (feature flag exists; implementation is a stub)
+- [ ] All semantic block types from the long-term vision (e.g. dedicated figure flow)
+
+See **`PROGRESS.md`** for a detailed checklist and **`HANDOFF.md`** for the latest session handoff.
 
 ## Build
 
@@ -59,7 +70,13 @@ Requires [Rust](https://rustup.rs).
 ```sh
 cargo build
 cargo test
-cargo run
+cargo run -- --help
+```
+
+### Example
+
+```sh
+cargo run -- convert --file examples/sample.fol --format pdf --output out.pdf
 ```
 
 ## License

@@ -508,7 +508,7 @@ fn build_inline_style(block: &Block) -> String {
     }
 }
 
-/// Build grid-template-columns from GRID columns attr (согласовано с engine resolver).
+/// Build grid-template-columns from GRID columns attr (aligned with engine resolver).
 fn grid_style(block: &Block) -> String {
     let mut tracks = vec![GridColumnTrack::Fr(1.0)];
     if let Some(value) = block

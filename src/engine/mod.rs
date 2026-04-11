@@ -38,7 +38,7 @@ impl Default for ExportOptions {
     }
 }
 
-/// Полный pipeline: Document → bytes выбранного формата.
+/// Full pipeline: `Document` → bytes for the chosen format.
 ///
 /// 1. Resolver:  AST → StyledTree (Arena)
 /// 2. Layout:    StyledTree → LayoutTree (taffy)
@@ -63,12 +63,12 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
     bytes
 }
 
-/// Полный pipeline: Document → PDF bytes
+/// Full pipeline: `Document` → PDF bytes
 pub fn render_pdf(doc: &Document) -> Vec<u8> {
     render(doc, ExportOptions { format: ExportFormat::Pdf })
 }
 
-/// Полный pipeline: Document → SVG string
+/// Full pipeline: `Document` → SVG string
 pub fn render_svg(doc: &Document) -> String {
     String::from_utf8(render(doc, ExportOptions { format: ExportFormat::Svg }))
         .unwrap_or_else(|_| String::new())
