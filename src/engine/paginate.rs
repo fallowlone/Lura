@@ -744,6 +744,8 @@ impl<'a> Paginator<'a> {
 pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> PageTree {
     let mut pager = Paginator::new(layout, styled);
 
+    // One layout root per top-level PAGE block: each root must start on a new physical page,
+    // even when the previous page has free vertical space (see `engine::pipeline_tests`).
     for (root_num, &root_idx) in layout.roots.iter().enumerate() {
         let node = &layout.nodes[root_idx];
         let root_styles = styled.get(node.arena_id).styles.clone();

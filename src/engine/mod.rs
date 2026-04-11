@@ -8,6 +8,9 @@ pub mod backend;
 pub mod counters;
 pub mod introspection;
 
+#[cfg(test)]
+mod pipeline_tests;
+
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
