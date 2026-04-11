@@ -12,7 +12,7 @@ pub fn assign_ids(mut doc: Document) -> Document {
 }
 
 fn assign_block_id(root: NodeId, doc: &mut Document) {
-    // Итеративный post-order: (node, visited_children)
+    // Iterative post-order: (node, visited_children)
     let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
 
     while let Some((node_id, visited)) = stack.pop() {

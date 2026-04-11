@@ -1,8 +1,8 @@
-/// Шрифты и разбивка текста на строки.
+/// Fonts and line breaking for text.
 ///
-/// Измерение ширины символов — через ttf-parser с реальными метриками шрифта.
-/// Загружается один раз в OnceLock при первом обращении.
-/// Если системный шрифт не найден — fallback на коэффициент 0.55.
+/// Character widths use ttf-parser with real font metrics.
+/// Loaded once in `OnceLock` on first use.
+/// If no system font is found, falls back to a 0.55 width factor.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -14,7 +14,7 @@ use rustybuzz::UnicodeBuffer;
 use super::layout::MM_TO_PT;
 use super::styles::InlineRun;
 
-// ─── Глобальный кеш метрик ────────────────────────────────────────────────────
+// --- Global metrics cache ---
 
 struct GlyphMetrics {
     advances: HashMap<char, u16>,
@@ -67,7 +67,7 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
     let face = ttf_parser::Face::parse(source.data.as_ref(), source.face_index).ok()?;
     let units_per_em = face.units_per_em();
     let mut advances = HashMap::with_capacity(512);
-    // Кешируем ASCII + Latin Extended (покрывает немецкие умлауты и типографику)
+    // Cache ASCII + Latin Extended (covers German umlauts and typography)
     for code in 32u32..1024u32 {
         if let Some(ch) = char::from_u32(code) {
             if let Some(gid) = face.glyph_index(ch) {
@@ -77,7 +77,7 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
             }
         }
     }
-    // Bullet и типографские символы
+    // Bullet and typographic symbols
     for ch in ['•', '–', '—', '…', '"', '"', '€', '©', '®'] {
         if let Some(gid) = face.glyph_index(ch) {
             if let Some(adv) = face.glyph_hor_advance(gid) {
@@ -148,18 +148,18 @@ fn get_font_source(bold: bool) -> Option<&'static FontSource> {
     }
 }
 
-/// Возвращает горизонтальное смещение символа в pt при заданном размере шрифта.
+/// Horizontal advance of a character in pt at the given font size.
 pub fn char_advance_pt(ch: char, font_size_pt: f32, bold: bool) -> f32 {
     if let Some(m) = get_metrics(bold) {
         if let Some(&adv) = m.advances.get(&ch) {
             return adv as f32 / m.units_per_em as f32 * font_size_pt;
         }
     }
-    // Fallback: консервативная аппроксимация
+    // Fallback: conservative approximation
     font_size_pt * 0.55
 }
 
-/// Возвращает ширину строки в pt.
+/// String width in pt.
 pub fn text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> f32 {
     text_width_pt_with_spacing(text, font_size_pt, bold, 0.0, 0.0)
 }
@@ -229,7 +229,7 @@ fn shape_text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> Option<f32>
     Some(width_units / upem * font_size_pt)
 }
 
-// ─── Текстовые строки ─────────────────────────────────────────────────────────
+// --- Text lines ---
 
 #[derive(Debug, Clone)]
 pub struct TextLine {
@@ -239,8 +239,8 @@ pub struct TextLine {
     pub font_size: f32,
 }
 
-/// Разбивает текст на строки по ширине контейнера.
-/// Использует реальные метрики шрифта (через GlyphMetrics) если доступны.
+/// Break text into lines to fit container width.
+/// Uses real font metrics (`GlyphMetrics`) when available.
 pub fn break_text(
     text: &str,
     max_width_pt: f32,
@@ -349,7 +349,7 @@ pub fn break_text(
     lines
 }
 
-/// Высота текстового блока: baseline первой строки + (N-1) × line_height.
+/// Text block height: first-line baseline + (N-1) × line_height.
 pub fn text_block_height(lines: &[TextLine]) -> f32 {
     if lines.is_empty() {
         return 0.0;

@@ -1,8 +1,8 @@
-/// Фаза 4а: LayoutTree → PageTree
+/// Phase 4a: LayoutTree → PageTree
 ///
-/// Последовательный курсор (cursor_y) управляет вертикальным потоком.
-/// Координаты X и ширина берутся из taffy.
-/// Для GRID: cursor_y сохраняется и восстанавливается для каждой ячейки в строке.
+/// Sequential `cursor_y` drives vertical flow.
+/// X position and width come from taffy.
+/// For GRID: `cursor_y` is saved and restored per cell in each row.
 use super::layout::{
     LayoutContent, LayoutNodeIdx, LayoutTree, A4_HEIGHT_PT, A4_WIDTH_PT, CONTENT_WIDTH_PT,
     MM_TO_PT, PAGE_MARGIN_PT,
@@ -10,7 +10,7 @@ use super::layout::{
 use super::styles::{BoxKind, Color, FloatMode, FontStyle, FontWeight, ListStyle};
 use super::text::{break_inline_runs, break_text, text_block_height};
 
-// ─── Команды отрисовки ────────────────────────────────────────────────────────
+// --- Draw commands ---
 
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
@@ -81,7 +81,7 @@ impl Default for PageTree {
     }
 }
 
-// ─── Константы ────────────────────────────────────────────────────────────────
+// --- Constants ---
 
 const CONTENT_TOP: f32 = PAGE_MARGIN_PT;
 const CONTENT_BOTTOM: f32 = A4_HEIGHT_PT - PAGE_MARGIN_PT;
@@ -93,7 +93,7 @@ struct Paginator<'a> {
     styled: &'a super::arena::DocumentArena,
     pages: Vec<Page>,
     cursor_y: f32,
-    /// Счётчик для текущего нумерованного списка (None = маркированный)
+    /// Counter for the current ordered list (`None` = bulleted)
     list_item_counter: Option<usize>,
     page_header: Option<String>,
     page_footer: Option<String>,
@@ -120,6 +120,47 @@ impl<'a> Paginator<'a> {
 
     fn push_cmd(&mut self, cmd: DrawCommand) {
         self.pages.last_mut().unwrap().commands.push(cmd);
+    }
+
+    /// Placeholder height for `FIGURE` / `IMAGE` until raster decode exists.
+    /// Uses explicit `height` mm, else `width` mm, else 40 mm.
+    fn figure_placeholder_height_pt(styles: &super::styles::ResolvedStyles) -> f32 {
+        let mm = styles
+            .height
+            .or(styles.width)
+            .unwrap_or(40.0)
+            .max(8.0);
+        mm * MM_TO_PT
+    }
+
+    fn draw_figure_placeholder(&mut self, block_x: f32, node: &super::layout::LayoutBox) {
+        let styles = self.styled.get(node.arena_id).styles.clone();
+        let w = node.width.max(1.0);
+        let h = Self::figure_placeholder_height_pt(&styles);
+        if self.cursor_y + h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
+            self.new_page();
+        }
+        self.push_cmd(DrawCommand::Rect {
+            x: block_x,
+            y: self.cursor_y,
+            w,
+            h,
+            fill: Some(Color::from_hex(0xE5E7EB)),
+            stroke: Some(Color::from_hex(0x9CA3AF)),
+            stroke_width: 0.5,
+        });
+        let label = "Figure";
+        self.push_cmd(DrawCommand::Text {
+            content: label.into(),
+            x: block_x + 4.0,
+            y: self.cursor_y + styles.font_size.min(h * 0.35).max(8.0),
+            font_size: styles.font_size.min(10.0),
+            font_family: styles.font_family.clone(),
+            bold: false,
+            italic: false,
+            color: Color::from_hex(0x4B5563),
+        });
+        self.cursor_y += h;
     }
 
     fn draw_page_chrome(&mut self) {
@@ -149,7 +190,7 @@ impl<'a> Paginator<'a> {
         }
     }
 
-    // ─── Размещение произвольного узла ─────────────────────────────────────
+    // --- Place arbitrary node ---
 
     fn place_node(&mut self, node_idx: LayoutNodeIdx) -> f32 {
         let node = self.layout.nodes[node_idx].clone();
@@ -182,9 +223,9 @@ impl<'a> Paginator<'a> {
         }
 
         let consumed = match node.content.clone() {
-            // ─── Текстовый блок ───────────────────────────────────────────
+            // --- Text block ---
             LayoutContent::Text(text) => {
-                // ListItem: особая обработка с bullet
+                // ListItem: special path with bullet
                 if matches!(node.kind, BoxKind::ListItem) {
                     return self.place_list_item(node_idx, &text, margin_top, margin_bottom);
                 }
@@ -293,7 +334,7 @@ impl<'a> Paginator<'a> {
                 block_h
             }
 
-            // ─── Контейнер ────────────────────────────────────────────────
+            // --- Container ---
             LayoutContent::Children(child_indices) => match node.kind {
                 BoxKind::Table => self.place_table(node_idx, child_indices),
                 BoxKind::Grid => self.place_grid(node_idx, child_indices),
@@ -319,7 +360,11 @@ impl<'a> Paginator<'a> {
             },
 
             LayoutContent::Empty => {
-                if matches!(node.kind, BoxKind::Hr) {
+                if matches!(node.kind, BoxKind::Figure) {
+                    let h = Self::figure_placeholder_height_pt(&styles);
+                    self.draw_figure_placeholder(block_x, &node);
+                    h
+                } else if matches!(node.kind, BoxKind::Hr) {
                     let x = block_x;
                     let w = node.width.max(CONTENT_WIDTH_PT);
                     self.push_cmd(DrawCommand::Line {
@@ -330,8 +375,10 @@ impl<'a> Paginator<'a> {
                         color: Color::from_hex(0xCCCCCC),
                         width: 0.5,
                     });
+                    0.0
+                } else {
+                    0.0
                 }
-                0.0
             }
         };
 
@@ -339,7 +386,7 @@ impl<'a> Paginator<'a> {
         consumed + margin_top + margin_bottom
     }
 
-    // ─── LIST ITEM с bullet ───────────────────────────────────────────────────
+    // --- List item with bullet ---
 
     fn place_list_item(
         &mut self,
@@ -367,7 +414,7 @@ impl<'a> Paginator<'a> {
             self.new_page();
         }
 
-        // Bullet "•" или "1." — левее начала текста
+        // Bullet "•" or "1." to the left of text start
         let bullet_text = match self.list_item_counter {
             Some(n) => format!("{}.", n),
             None => "\u{2022}".to_string(),
@@ -411,7 +458,7 @@ impl<'a> Paginator<'a> {
     fn place_grid(&mut self, grid_idx: LayoutNodeIdx, child_indices: Vec<LayoutNodeIdx>) -> f32 {
         let grid_node = self.layout.nodes[grid_idx].clone();
         let grid_styles = self.styled.get(grid_node.arena_id).styles.clone();
-        let cols = grid_styles.grid_columns.unwrap_or(1).max(1);
+        let cols = grid_styles.grid_column_count().max(1);
         let grid_start_y = self.cursor_y;
 
         for row_cells in child_indices.chunks(cols) {
@@ -419,17 +466,17 @@ impl<'a> Paginator<'a> {
             let mut max_h = 0.0f32;
 
             for &ci in row_cells {
-                // Восстанавливаем cursor_y в начало строки для каждой ячейки
+                // Reset cursor_y to row start for each cell
                 self.cursor_y = row_start_y;
                 self.place_node(ci);
-                // Запоминаем максимальную высоту строки
+                // Track max row height
                 let cell_h = self.cursor_y - row_start_y;
                 if cell_h > max_h {
                     max_h = cell_h;
                 }
             }
 
-            // Продвигаем курсор на высоту самой высокой ячейки строки
+            // Advance cursor by the tallest cell in the row
             self.cursor_y = row_start_y + max_h;
         }
 
@@ -444,7 +491,7 @@ impl<'a> Paginator<'a> {
         let table_x = table_node.x;
         let table_w = table_node.width.max(1.0);
 
-        // Линия над первой строкой таблицы
+        // Line above first table row
         self.push_cmd(DrawCommand::Line {
             x1: table_x,
             y1: self.cursor_y,
@@ -468,7 +515,7 @@ impl<'a> Paginator<'a> {
                 continue;
             }
 
-            // Высота строки = максимум по ячейкам
+            // Row height = max over cells
             let row_height = cell_indices
                 .iter()
                 .map(|&ci| {
@@ -533,7 +580,7 @@ impl<'a> Paginator<'a> {
                 self.new_page();
             }
 
-            // Фон строки: явный background-color строки ИЛИ фон header по умолчанию
+            // Row background: explicit row color OR default header tint
             let row_bg = row_styles.background.or_else(|| {
                 if row_num == 0 {
                     Some(Color::from_hex(0xF5F5F5))
@@ -554,7 +601,7 @@ impl<'a> Paginator<'a> {
                 });
             }
 
-            // Ячейки строки
+            // Row cells
             for &cell_idx in &cell_indices {
                 let cell = self.layout.nodes[cell_idx].clone();
                 let cell_styles = self.styled.get(cell.arena_id).styles.clone();
@@ -562,7 +609,7 @@ impl<'a> Paginator<'a> {
                 let padding_top = cell_styles.padding.top * MM_TO_PT;
                 let padding_left = cell_styles.padding.left * MM_TO_PT;
 
-                // Фон отдельной ячейки
+                // Per-cell background
                 if let Some(cell_bg) = cell_styles.background {
                     self.push_cmd(DrawCommand::Rect {
                         x: cell.x,
@@ -666,7 +713,7 @@ impl<'a> Paginator<'a> {
 
             self.cursor_y += row_height;
 
-            // Разделитель под строкой
+            // Separator below row
             self.push_cmd(DrawCommand::Line {
                 x1: table_x,
                 y1: self.cursor_y,
@@ -677,7 +724,7 @@ impl<'a> Paginator<'a> {
             });
         }
 
-        // Рамка таблицы
+        // Table border
         let total_h = self.cursor_y - table_start_y;
         self.push_cmd(DrawCommand::Rect {
             x: table_x,
@@ -692,11 +739,14 @@ impl<'a> Paginator<'a> {
         total_h
     }
 
-    // ─── Оценка высоты блока (для фонового прямоугольника) ─────────────────
+    // --- Block height estimate (background rects) ---
 
     fn estimate_height(&self, node_idx: LayoutNodeIdx) -> f32 {
         let node = &self.layout.nodes[node_idx];
         let styles = self.styled.get(node.arena_id).styles.clone();
+        if matches!(node.kind, BoxKind::Figure) && matches!(node.content, LayoutContent::Empty) {
+            return Self::figure_placeholder_height_pt(&styles);
+        }
         let bold = styles.font_weight == FontWeight::Bold;
         match &node.content {
             LayoutContent::Text(t) => {
@@ -739,7 +789,7 @@ impl<'a> Paginator<'a> {
     }
 }
 
-// ─── Публичный API ────────────────────────────────────────────────────────────
+// --- Public API ---
 
 pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> PageTree {
     let mut pager = Paginator::new(layout, styled);

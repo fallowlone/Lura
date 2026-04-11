@@ -1,15 +1,16 @@
-/// Фаза 2: StyledTree → LayoutTree
+/// Phase 2: StyledTree → LayoutTree
 ///
-/// Берёт DocumentArena (StyledBoxes), строит параллельное дерево taffy,
-/// запускает вычисление геометрии и извлекает координаты X/Y/W/H.
+/// Takes `DocumentArena` (styled boxes), builds a parallel taffy tree,
+/// runs layout, and extracts X/Y/W/H coordinates.
 ///
-/// Единица измерения: pt (points). 1mm = 2.8346pt. A4 = 595.28pt × 841.89pt.
+/// Units: pt (points). 1mm = 2.8346pt. A4 = 595.28pt × 841.89pt.
 
 use taffy::prelude::*;
 use super::arena::{DocumentArena, NodeId as ArenaNodeId};
+use super::grid_tracks::tracks_to_taffy_components;
 use super::styles::{BoxContent, BoxKind, Display, InlineRun};
 
-// ─── Константы ────────────────────────────────────────────────────────────────
+// --- Constants ---
 
 pub const MM_TO_PT: f32 = 2.8346;
 
@@ -21,12 +22,12 @@ pub const A4_HEIGHT_PT: f32 = A4_HEIGHT_MM * MM_TO_PT;  // ≈ 841.9
 pub const PAGE_MARGIN_MM: f32 = 15.0;
 pub const PAGE_MARGIN_PT: f32 = PAGE_MARGIN_MM * MM_TO_PT;
 
-/// Ширина контентной области A4 в pt
+/// A4 content area width in pt
 pub const CONTENT_WIDTH_PT: f32 = (A4_WIDTH_MM - PAGE_MARGIN_MM * 2.0) * MM_TO_PT; // ≈ 481.0
 
-// ─── Структуры результата ─────────────────────────────────────────────────────
+// --- Result structures ---
 
-/// Индекс в плоском массиве LayoutTree.nodes
+/// Index into the flat `LayoutTree.nodes` array
 pub type LayoutNodeIdx = usize;
 
 #[derive(Debug, Clone)]
@@ -37,11 +38,11 @@ pub enum LayoutContent {
     Empty,
 }
 
-/// Готовый блок с вычисленными абсолютными координатами.
-/// Координаты — в pt, относительно левого верхнего угла страницы.
+/// Laid-out box with computed absolute coordinates.
+/// Coordinates are in pt from the page top-left corner.
 #[derive(Debug, Clone)]
 pub struct LayoutBox {
-    /// Обратная ссылка на узел в StyledTree
+    /// Back-reference to the styled-tree node
     pub arena_id: ArenaNodeId,
     pub kind: BoxKind,
 
@@ -53,8 +54,8 @@ pub struct LayoutBox {
     pub content: LayoutContent,
 }
 
-/// Плоский список всех layout-узлов документа.
-/// Корни хранятся в `roots` (индексы в nodes).
+/// Flat list of all layout nodes in the document.
+/// Roots are stored in `roots` (indices into `nodes`).
 pub struct LayoutTree {
     pub nodes: Vec<LayoutBox>,
     pub roots: Vec<LayoutNodeIdx>,
@@ -72,23 +73,23 @@ impl Default for LayoutTree {
     }
 }
 
-// ─── Сборка Layout ────────────────────────────────────────────────────────────
+// --- Layout build ---
 
-/// Основная функция фазы 2.
-/// Принимает StyledTree (DocumentArena), возвращает LayoutTree.
+/// Main entry for phase 2.
+/// Takes styled tree (`DocumentArena`), returns `LayoutTree`.
 pub fn compute_layout(styled: &DocumentArena) -> LayoutTree {
     let mut taffy: TaffyTree<ArenaNodeId> = TaffyTree::new();
     let mut layout_tree = LayoutTree::new();
 
-    // Строим taffy-узлы для каждого root
+    // Build taffy nodes for each root
     let taffy_roots: Vec<NodeId> = styled.roots
         .iter()
         .map(|&arena_id| build_taffy_node(arena_id, styled, &mut taffy))
         .collect();
 
-    // Запускаем layout для каждого root-PAGE.
-    // Используем CONTENT_WIDTH_PT — ширину без полей страницы.
-    // Поля (PAGE_MARGIN_PT) добавляются в extract_layout через parent_x/parent_y.
+    // Run layout for each root PAGE.
+    // Use CONTENT_WIDTH_PT (width without page margins).
+    // Margins (PAGE_MARGIN_PT) are applied in extract_layout via parent_x/parent_y.
     for taffy_root in &taffy_roots {
         let available = Size {
             width:  AvailableSpace::Definite(CONTENT_WIDTH_PT),
@@ -97,7 +98,7 @@ pub fn compute_layout(styled: &DocumentArena) -> LayoutTree {
         let _ = taffy.compute_layout(*taffy_root, available);
     }
 
-    // Извлекаем результаты в плоский LayoutTree
+    // Flatten results into LayoutTree
     let mut offset_y = 0.0f32;
     for (&arena_id, &taffy_id) in styled.roots.iter().zip(taffy_roots.iter()) {
         let root_idx = extract_layout(
@@ -111,7 +112,7 @@ pub fn compute_layout(styled: &DocumentArena) -> LayoutTree {
         );
         layout_tree.roots.push(root_idx);
 
-        // Следующая PAGE начинается ниже
+        // Next PAGE starts below
         if let Ok(l) = taffy.layout(taffy_id) {
             offset_y += l.size.height + PAGE_MARGIN_PT;
         }
@@ -120,7 +121,7 @@ pub fn compute_layout(styled: &DocumentArena) -> LayoutTree {
     layout_tree
 }
 
-// ─── Построение taffy-дерева ─────────────────────────────────────────────────
+// --- Taffy tree construction ---
 
 fn build_taffy_node(
     arena_id: ArenaNodeId,
@@ -132,9 +133,9 @@ fn build_taffy_node(
 
     match &node.content {
         BoxContent::Text(_) | BoxContent::Inline(_) | BoxContent::Empty => {
-            // Листовой текстовый узел.
-            // Высоту считаем через measure-function в compute_layout_with_measure;
-            // для простоты v2 используем фиксированную высоту на строку.
+            // Leaf text node.
+            // Height would come from a measure function in compute_layout_with_measure;
+            // v2 keeps a fixed height per line for simplicity.
             taffy.new_leaf_with_context(style, arena_id).unwrap()
         }
         BoxContent::Children(children) => {
@@ -147,7 +148,7 @@ fn build_taffy_node(
     }
 }
 
-/// Маппинг наших стилей → taffy Style.
+/// Map our styles to a taffy `Style`.
 fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxKind) -> Style {
     use taffy::style_helpers::*;
 
@@ -156,10 +157,11 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
         Display::Flex  => taffy::Display::Flex,
         Display::None  => taffy::Display::None,
         Display::Block => match kind {
-            BoxKind::Page  => taffy::Display::Flex,   // flex-column: стекирует блоки
+            BoxKind::Page  => taffy::Display::Flex,   // flex column: stack blocks
             BoxKind::Grid  => taffy::Display::Grid,
-            BoxKind::Table => taffy::Display::Block,  // block: стекирует строки вертикально
-            BoxKind::Row   => taffy::Display::Flex,   // flex-row: ячейки рядом
+            BoxKind::Table => taffy::Display::Block,  // block: stack rows vertically
+            BoxKind::Row   => taffy::Display::Flex,   // flex row: cells in a row
+            BoxKind::Figure => taffy::Display::Flex, // column stack: asset + caption
             _ => taffy::Display::Block,
         },
     };
@@ -180,7 +182,7 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
     let width = match styles.width {
         Some(w) => Dimension::length(w * MM_TO_PT),
         None    => match kind {
-            // PAGE задаётся шириной контентной области — поля добавляются снаружи через parent_x
+            // PAGE width is the content area; margins applied outside via parent_x
             BoxKind::Page => Dimension::length(CONTENT_WIDTH_PT),
             _             => Dimension::auto(),
         },
@@ -200,10 +202,9 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
         height: styles.max_height.map(|v| v * MM_TO_PT).map(Dimension::length).unwrap_or(Dimension::auto()),
     };
 
-    // Для grid-блоков задаём колонки
+    // Grid blocks: set columns (fr / lengths / auto from columns attr)
     let grid_template_columns = if matches!(display, taffy::Display::Grid) {
-        let cols = styles.grid_columns.unwrap_or(1);
-        vec![fr(1.0); cols]
+        tracks_to_taffy_components(&styles.grid_column_tracks)
     } else {
         vec![]
     };
@@ -226,13 +227,14 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
         padding,
         gap,
         grid_template_columns,
-        // flex-direction зависит от типа блока
+        // flex-direction follows block kind
         flex_direction: match kind {
-            BoxKind::Page => FlexDirection::Column, // вертикальный стек блоков
-            BoxKind::Row  => FlexDirection::Row,    // горизонтальный стек ячеек
+            BoxKind::Page => FlexDirection::Column, // vertical stack of blocks
+            BoxKind::Row  => FlexDirection::Row,    // horizontal stack of cells
+            BoxKind::Figure => FlexDirection::Column,
             _             => FlexDirection::Row,
         },
-        // flex-grow для CELL: берём из стилей (default 1.0 — равные колонки)
+        // CELL flex-grow from styles (default 1.0 for equal columns)
         flex_grow: if matches!(kind, BoxKind::Cell) {
             if styles.flex_grow > 0.0 { styles.flex_grow } else { 1.0 }
         } else {
@@ -242,10 +244,10 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
     }
 }
 
-// ─── Извлечение результатов ───────────────────────────────────────────────────
+// --- Extract results ---
 
-/// Рекурсивно извлекает layout-результаты из taffy и заполняет LayoutTree.
-/// Возвращает индекс созданного LayoutBox в layout_tree.nodes.
+/// Recursively pull layout results from taffy into `LayoutTree`.
+/// Returns the index of the new `LayoutBox` in `layout_tree.nodes`.
 fn extract_layout(
     taffy_id: NodeId,
     arena_id: ArenaNodeId,

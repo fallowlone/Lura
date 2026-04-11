@@ -1,3 +1,4 @@
+use crate::engine::grid_tracks::{parse_grid_columns_value, tracks_to_css, GridColumnTrack};
 use crate::parser::ast::{Block, Content, Document, Value};
 
 pub fn render(doc: &Document) -> String {
@@ -202,8 +203,41 @@ fn build_css(doc: &Document) -> String {
       border-radius: 4px;
       margin-bottom: 16px;
       display: block;
+    }}
+
+    .folio-figure {{
+      margin: 0 0 16px 0;
+    }}
+
+    .folio-figure .folio-image {{
+      margin-bottom: 8px;
+    }}
+
+    .folio-figure figcaption {{
+      font-size: 0.8125rem;
+      color: #555555;
+      line-height: 1.4;
     }}"#,
         vars_css = vars_css,
+    )
+}
+
+fn render_image_element(block: &Block, pad: &str) -> String {
+    let mut src = String::new();
+    if let Some(Value::Str(s)) = block.attrs.get("src") {
+        src = s.clone();
+    }
+    let mut alt = String::new();
+    if let Some(Value::Str(a)) = block.attrs.get("alt") {
+        alt = a.clone();
+    }
+    let style = build_inline_style(block);
+    format!(
+        "{}<img class=\"folio-image\" src=\"{}\" alt=\"{}\"{}>\n",
+        pad,
+        escape_html(&src),
+        escape_html(&alt),
+        style
     )
 }
 
@@ -312,17 +346,26 @@ fn render_block(block: &Block, doc: &Document, out: &mut String, indent: usize) 
             }
             out.push_str(&format!("{}</td>\n", pad));
         }
-        "IMAGE" => {
-            let mut src = String::new();
-            if let Some(Value::Str(s)) = block.attrs.get("src") {
-                src = s.clone();
-            }
-            let mut alt = String::new();
-            if let Some(Value::Str(a)) = block.attrs.get("alt") {
-                alt = a.clone();
-            }
+        "FIGURE" => {
             let style = build_inline_style(block);
-            out.push_str(&format!("{}<img class=\"folio-image\" src=\"{}\" alt=\"{}\"{}>\n", pad, escape_html(&src), escape_html(&alt), style));
+            out.push_str(&format!("{}<figure class=\"folio-figure\"{}>\n", pad, style));
+            if has_children(block) {
+                render_children(block, doc, out, indent + 1);
+            } else {
+                let inner_pad = format!("{}  ", pad);
+                out.push_str(&render_image_element(block, &inner_pad));
+                if let Some(Value::Str(c)) = block.attrs.get("caption") {
+                    out.push_str(&format!(
+                        "{}  <figcaption>{}</figcaption>\n",
+                        pad,
+                        escape_html(c)
+                    ));
+                }
+            }
+            out.push_str(&format!("{}</figure>\n", pad));
+        }
+        "IMAGE" => {
+            out.push_str(&render_image_element(block, &pad));
         }
         "STYLES" => {
             // STYLES blocks are handled at Document level, skip here
@@ -507,16 +550,17 @@ fn build_inline_style(block: &Block) -> String {
     }
 }
 
-/// Build grid-template-columns from GRID columns attr
+/// Build grid-template-columns from GRID columns attr (aligned with engine resolver).
 fn grid_style(block: &Block) -> String {
-    if let Some(val) = block.attrs.get("columns") {
-        let n = match val {
-            Value::Number(n) => *n as usize,
-            Value::Str(s) => s.parse::<usize>().unwrap_or(2),
-            _ => 2,
-        };
-        format!("grid-template-columns: {}", vec!["1fr"; n].join(" "))
-    } else {
-        "grid-template-columns: 1fr 1fr".to_string()
+    let mut tracks = vec![GridColumnTrack::Fr(1.0)];
+    if let Some(value) = block
+        .attrs
+        .get("columns")
+        .or_else(|| block.attrs.get("grid-columns"))
+    {
+        if let Some(parsed) = parse_grid_columns_value(value) {
+            tracks = parsed;
+        }
     }
+    format!("grid-template-columns: {}", tracks_to_css(&tracks))
 }

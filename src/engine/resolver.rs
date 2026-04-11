@@ -1,18 +1,19 @@
-/// Конвертирует AST парсера в StyledTree (Arena of StyledBoxes).
+/// Converts parser AST into a StyledTree (arena of StyledBoxes).
 ///
-/// Для каждого узла: база `ResolvedStyles::default()`, наследуемые поля с родителя,
-/// затем `apply_kind_defaults` (чтобы H1/CODE и т.д. не затирались родительским шрифтом),
-/// затем явные attrs блока.
+/// Per node: `ResolvedStyles::default()`, then inheritable fields from the parent,
+/// then `apply_kind_defaults` (so H1/CODE defaults are not overwritten by inherited font),
+/// then explicit block attrs.
 
 use crate::parser::ast::{Block, Content, Document, InlineNode, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
+use super::grid_tracks::parse_grid_columns_value;
 use super::styles::{
     BoxContent, BoxKind, Color, Display, EdgeInsets, FloatMode, FontStyle, FontWeight, InlineRun,
     ListStyle, ResolvedStyles, StyledBox, TextAlign,
 };
 
-/// Основная точка входа.
-/// Принимает Document (из парсера), возвращает DocumentArena.
+/// Main entry point.
+/// Takes `Document` from the parser, returns `DocumentArena`.
 pub fn build_styled_tree(doc: &Document) -> DocumentArena {
     let mut arena = DocumentArena::new();
 
@@ -27,8 +28,8 @@ pub fn build_styled_tree(doc: &Document) -> DocumentArena {
     arena
 }
 
-/// Рекурсивно конвертирует блок AST → StyledBox в арене.
-/// `parent_styles` — уже разрешённые стили родителя (для наследования).
+/// Recursively converts an AST block to a StyledBox in the arena.
+/// `parent_styles` are the parent's resolved styles (for inheritance).
 fn convert_block(
     doc: &Document,
     ast_node_id: AstNodeId,
@@ -38,26 +39,26 @@ fn convert_block(
     let block = doc.block(ast_node_id);
     let kind = BoxKind::from_str(&block.kind);
 
-    // Сначала база и наследуемые от родителя свойства (как в CSS: font-*, color, line-height, text-align).
-    // Потом дефолты вида блока (H1 размер/жирность, CODE monospace, …), иначе наследование затирает их.
+    // Base + inheritable from parent (font-*, color, line-height, text-align).
+    // Then kind defaults (H1 size/weight, CODE monospace, …) so inheritance does not erase them.
     let mut styles = ResolvedStyles::default();
     if let Some(parent) = parent_styles {
         inherit_styles(&mut styles, parent);
     }
     styles.apply_kind_defaults(&kind);
 
-    // Применяем явные attrs блока (переопределяют дефолты и наследование)
+    // Apply explicit block attrs (override defaults and inheritance)
     apply_attrs(&mut styles, block);
 
-    // Конвертируем контент
+    // Convert content
     let content = match &block.content {
         Content::Text(s) => BoxContent::Text(s.clone()),
         Content::Inline(nodes) => BoxContent::Inline(flatten_inline(nodes, false, false, None)),
         Content::Empty => BoxContent::Empty,
         Content::Children(children) => {
-            // Сначала аллоцируем узел без детей
-            // Затем рекурсивно аллоцируем детей
-            // (нельзя иметь mutable borrow на arena и styles одновременно)
+            // Allocate the node without children first
+            // Then recursively allocate children
+            // (cannot hold mutable borrows of arena and styles at the same time)
             let child_ids: Vec<_> = children
                 .iter()
                 .filter(|child_id| doc.block(**child_id).kind != "STYLES")
@@ -77,11 +78,9 @@ fn convert_block(
     arena.alloc(node)
 }
 
-/// Копирует наследуемые CSS-свойства с родителя на уже инициализированный `child`
-/// (обычно `ResolvedStyles::default()`).
-///
-/// Вызывается до `ResolvedStyles::apply_kind_defaults`, чтобы заголовки и CODE
-/// могли переопределить font-size / weight / family.
+/// Copies inheritable CSS properties from parent to child (`child` is usually
+/// `ResolvedStyles::default()` before `apply_kind_defaults`).
+/// Only: font-*, color, line-height, text-align.
 fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.font_size = parent.font_size;
     child.font_family = parent.font_family.clone();
@@ -92,7 +91,7 @@ fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.text_align = parent.text_align;
 }
 
-/// Применяет явные attrs блока поверх уже накопленных стилей.
+/// Applies explicit block attrs on top of accumulated styles.
 fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
     for (key, value) in &block.attrs {
         match key.as_str() {
@@ -233,8 +232,8 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
                 }
             }
             "columns" | "grid-columns" => {
-                if let Some(v) = value_to_f32(value) {
-                    styles.grid_columns = Some(v as usize);
+                if let Some(tracks) = parse_grid_columns_value(value) {
+                    styles.grid_column_tracks = tracks;
                 }
             }
             "column-gap" | "gap" => {

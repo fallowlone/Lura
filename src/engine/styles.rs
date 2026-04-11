@@ -1,6 +1,7 @@
 use super::arena::NodeId;
+use super::grid_tracks::GridColumnTrack;
 
-/// Вид блока — определяет семантику при лэйауте.
+/// Block kind: drives layout semantics.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoxKind {
     Page,
@@ -10,7 +11,8 @@ pub enum BoxKind {
     Row,
     Cell,
     Grid,
-    Image,
+    /// Semantic figure: optional `IMAGE` child plus caption blocks; raster decode is not wired yet.
+    Figure,
     Code,
     Quote,
     List,
@@ -19,7 +21,7 @@ pub enum BoxKind {
     Unknown(String),
 }
 
-/// Стиль нумерации списка.
+/// List numbering style.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ListStyle {
     Bullet,
@@ -40,8 +42,9 @@ impl BoxKind {
             "TABLE" => BoxKind::Table,
             "ROW"   => BoxKind::Row,
             "CELL"  => BoxKind::Cell,
-            "GRID"  => BoxKind::Grid,
-            "IMAGE" => BoxKind::Image,
+            "GRID"   => BoxKind::Grid,
+            "FIGURE" => BoxKind::Figure,
+            "IMAGE"  => BoxKind::Figure,
             "CODE"  => BoxKind::Code,
             "QUOTE" => BoxKind::Quote,
             "LIST"  => BoxKind::List,
@@ -51,7 +54,7 @@ impl BoxKind {
         }
     }
 
-    /// Является ли блок строчным (inline) контейнером текста
+    /// Whether this block is an inline text container
     pub fn is_text_container(&self) -> bool {
         matches!(
             self,
@@ -65,12 +68,12 @@ impl BoxKind {
     }
 }
 
-/// Абсолютно разрешённые стили узла.
-/// После резолвинга здесь нет переменных (#var), нет процентов — только
-/// конкретные значения в pt/mm.
+/// Fully resolved styles for a node.
+/// After resolution there are no `#var` references or percentages, only
+/// concrete values in pt/mm.
 #[derive(Debug, Clone)]
 pub struct ResolvedStyles {
-    /// Размер шрифта в pt
+    /// Font size in pt
     pub font_size: f32,
     pub font_family: String,
     pub font_weight: FontWeight,
@@ -82,25 +85,25 @@ pub struct ResolvedStyles {
     pub margin: EdgeInsets,
     pub padding: EdgeInsets,
 
-    /// Ширина блока (если задана явно)
+    /// Block width when set explicitly
     pub width: Option<f32>,
-    /// Высота блока (если задана явно)
+    /// Block height when set explicitly
     pub height: Option<f32>,
     pub min_width: Option<f32>,
     pub max_width: Option<f32>,
     pub min_height: Option<f32>,
     pub max_height: Option<f32>,
 
-    /// Межстрочный интервал (коэффициент × font_size)
+    /// Line height (factor × font_size)
     pub line_height: f32,
 
-    /// Выравнивание текста
+    /// Text alignment
     pub text_align: TextAlign,
-    /// Добавочное расстояние между буквами (pt)
+    /// Extra spacing between letters (pt)
     pub letter_spacing: f32,
-    /// Добавочное расстояние между словами (pt)
+    /// Extra spacing between words (pt)
     pub word_spacing: f32,
-    /// Принудительный justify для текстовых блоков
+    /// Force justified text for text blocks
     pub justify: bool,
     pub keep_together: bool,
     pub keep_with_next: bool,
@@ -108,20 +111,20 @@ pub struct ResolvedStyles {
     pub orphans: usize,
     pub allow_row_split: bool,
 
-    /// Тип дисплея (block / grid / flex)
+    /// Display type (block / grid / flex)
     pub display: Display,
 
-    /// Кол-во колонок в grid (применимо к GRID / TABLE)
-    pub grid_columns: Option<usize>,
+    /// Explicit GRID column tracks (`columns` in FOL). Empty = one `1fr` column.
+    pub grid_column_tracks: Vec<GridColumnTrack>,
 
-    /// Колонный gap в mm
+    /// Column gap in mm
     pub column_gap: f32,
     pub row_gap: f32,
 
-    /// flex-grow для ячеек таблицы (управляет пропорциями колонок)
+    /// flex-grow for table cells (column width proportions)
     pub flex_grow: f32,
 
-    /// Стиль нумерации списка
+    /// List numbering style
     pub list_style: ListStyle,
     pub float: FloatMode,
     pub anchor: Option<String>,
@@ -157,7 +160,7 @@ impl Default for ResolvedStyles {
             orphans: 2,
             allow_row_split: false,
             display: Display::Block,
-            grid_columns: None,
+            grid_column_tracks: Vec::new(),
             column_gap: 4.0,
             row_gap: 2.0,
             flex_grow: 0.0,
@@ -171,7 +174,13 @@ impl Default for ResolvedStyles {
 }
 
 impl ResolvedStyles {
-    /// Сенсибл-дефолты для конкретного вида блока (без учёта родителя).
+    /// GRID column count for pagination (empty `grid_column_tracks` → 1).
+    #[inline]
+    pub fn grid_column_count(&self) -> usize {
+        super::grid_tracks::grid_column_count(&self.grid_column_tracks)
+    }
+
+    /// Sensible defaults for a given block kind (parent-independent baseline).
     pub fn for_kind(kind: &BoxKind) -> Self {
         let mut s = Self::default();
         s.apply_kind_defaults(kind);
@@ -225,12 +234,15 @@ impl ResolvedStyles {
             BoxKind::Hr => {
                 self.margin = EdgeInsets::new(3.0, 0.0, 3.0, 0.0);
             }
+            BoxKind::Figure => {
+                self.margin = EdgeInsets::new(2.0, 0.0, 4.0, 0.0);
+            }
             _ => {}
         }
     }
 }
 
-/// Контент узла — либо текст, либо список дочерних NodeId
+/// Node content: plain text or child `NodeId` list
 #[derive(Debug, Clone)]
 pub enum BoxContent {
     Text(String),
@@ -248,8 +260,8 @@ pub struct InlineRun {
     pub link: Option<String>,
 }
 
-/// Основная единица Styled Tree.
-/// Содержит полностью разрешённые стили и ссылки на детей по NodeId.
+/// Primary unit of the styled tree.
+/// Holds fully resolved styles and child references by `NodeId`.
 #[derive(Debug, Clone)]
 pub struct StyledBox {
     pub id: String,
@@ -258,7 +270,7 @@ pub struct StyledBox {
     pub content: BoxContent,
 }
 
-// ─── вспомогательные типы ─────────────────────────────────────────────────────
+// --- Helper types ---
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -279,7 +291,7 @@ impl Color {
         }
     }
 
-    /// Разбирает строки вида "#FF0000", "#FFF", "red", "black"
+    /// Parse strings like "#FF0000", "#FFF", "red", "black"
     pub fn from_str(s: &str) -> Option<Self> {
         let s = s.trim().trim_start_matches('#');
         match s {

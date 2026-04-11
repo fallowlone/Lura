@@ -3,10 +3,10 @@ use super::styles::StyledBox;
 
 pub type NodeId = Id<StyledBox>;
 
-/// Плоский Arena для всех узлов документа.
-/// Вместо рекурсивных Box<Node> — единый Vec под капотом,
-/// дети хранятся как Vec<NodeId> (индексы, не указатели).
-/// Это даёт cache-friendly обход и 0 overhead аллокатора.
+/// Flat arena for all document nodes.
+/// Instead of recursive `Box<Node>`, a single `Vec` under the hood;
+/// children are stored as `Vec<NodeId>` (indices, not pointers).
+/// This yields cache-friendly traversal and zero allocator overhead.
 pub struct DocumentArena {
     pub arena: Arena<StyledBox>,
     pub roots: Vec<NodeId>,
