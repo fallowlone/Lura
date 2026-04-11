@@ -4,6 +4,23 @@
 
 ---
 
+## Брендинг и файлы (план)
+
+- **Переименование проекта:** **Lura** (вместо рабочего имени Folio в описании формата и продукте).
+- **Расширение файла документа:** **`.lura`**.
+- Репозиторий/крейт `folio` могут переименовываться позже; миграция синтаксиса, CLI, доков и примеров — отдельная задача после решения о нейминге в коде.
+
+---
+
+## Графика и композитинг (дорожная карта)
+
+Цель: маски, группы прозрачности, нестандартные шрифты, богатый графический стек (см. обсуждение PDF-подобной модели).
+
+**Детальный план по фазам A–E:** [docs/GRAPHICS_ROADMAP.md](docs/GRAPHICS_ROADMAP.md)  
+(шрифты → простая opacity → clip → группы + blend modes → SMask / сложные маски; отдельно — расширение IR вместо плоского `DrawCommand`-only пути).
+
+---
+
 ## Текущая фаза: Render Engine v2 (Rust)
 
 **Статус:** активная разработка
@@ -98,7 +115,7 @@ PAGE(
 - [x] `rustybuzz` shaping для измерения текста
 - [x] PDF backend на `pdf-writer`
 - [x] Каркас Painter API
-- [x] WGPU backend scaffold под feature `wgpu-preview` (stub)
+- [x] WGPU preview под feature `wgpu-preview`: `PaintDocument` → PNG (`wgpu` 28 + `glyphon`)
 - [x] Inline layout v1: line builder по run-ам + mixed-style rendering (PDF/SVG)
 - [x] Typography v1: `letter-spacing`, `word-spacing`, базовый `justify`
 - [x] Pagination rules v2 (base): `keep-with-next`, `keep-together`, row split policy switch
@@ -110,7 +127,8 @@ PAGE(
 
 ## Открытые вопросы
 
-_(нет)_
+- Точная стратегия переименования: только продукт/спека или также `Cargo.toml`/crate name и GitHub repo.
+- Подмножество «Lura Graphics 1.0» для первого релиза графики (см. GRAPHICS_ROADMAP).
 
 ---
 
@@ -125,3 +143,4 @@ _(нет)_
 - Sparse layout: координаты в абсолютных единицах (mm)
 - Certificate: SHA-256 хеш всего документа
 - Folio = формат хранения; редактор и authoring syntax — отдельные проекты поверх
+- **План:** публичное имя формата **Lura**, расширение **`.lura`** (см. выше)
