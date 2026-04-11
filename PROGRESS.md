@@ -20,7 +20,7 @@
 ## Format specification — прогресс
 
 - [x] Базовый синтаксис определён на бумаге
-- [ ] Типы блоков: heading, paragraph, table, figure, code
+- [x] Типы блоков: heading, paragraph, table, figure, code (`H1`–`H6`, `P`, `TABLE`/`ROW`/`CELL`, `FIGURE`/`IMAGE`, `CODE`; PDF: placeholder для пустого asset)
 - [x] Layout: grid-based (не coordinate-based)
 - [x] Block ID схема
 - [x] Certificate схема

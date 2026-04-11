@@ -122,6 +122,47 @@ impl<'a> Paginator<'a> {
         self.pages.last_mut().unwrap().commands.push(cmd);
     }
 
+    /// Placeholder height for `FIGURE` / `IMAGE` until raster decode exists.
+    /// Uses explicit `height` mm, else `width` mm, else 40 mm.
+    fn figure_placeholder_height_pt(styles: &super::styles::ResolvedStyles) -> f32 {
+        let mm = styles
+            .height
+            .or(styles.width)
+            .unwrap_or(40.0)
+            .max(8.0);
+        mm * MM_TO_PT
+    }
+
+    fn draw_figure_placeholder(&mut self, block_x: f32, node: &super::layout::LayoutBox) {
+        let styles = self.styled.get(node.arena_id).styles.clone();
+        let w = node.width.max(1.0);
+        let h = Self::figure_placeholder_height_pt(&styles);
+        if self.cursor_y + h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
+            self.new_page();
+        }
+        self.push_cmd(DrawCommand::Rect {
+            x: block_x,
+            y: self.cursor_y,
+            w,
+            h,
+            fill: Some(Color::from_hex(0xE5E7EB)),
+            stroke: Some(Color::from_hex(0x9CA3AF)),
+            stroke_width: 0.5,
+        });
+        let label = "Figure";
+        self.push_cmd(DrawCommand::Text {
+            content: label.into(),
+            x: block_x + 4.0,
+            y: self.cursor_y + styles.font_size.min(h * 0.35).max(8.0),
+            font_size: styles.font_size.min(10.0),
+            font_family: styles.font_family.clone(),
+            bold: false,
+            italic: false,
+            color: Color::from_hex(0x4B5563),
+        });
+        self.cursor_y += h;
+    }
+
     fn draw_page_chrome(&mut self) {
         if let Some(header) = &self.page_header {
             self.push_cmd(DrawCommand::Text {
@@ -319,7 +360,11 @@ impl<'a> Paginator<'a> {
             },
 
             LayoutContent::Empty => {
-                if matches!(node.kind, BoxKind::Hr) {
+                if matches!(node.kind, BoxKind::Figure) {
+                    let h = Self::figure_placeholder_height_pt(&styles);
+                    self.draw_figure_placeholder(block_x, &node);
+                    h
+                } else if matches!(node.kind, BoxKind::Hr) {
                     let x = block_x;
                     let w = node.width.max(CONTENT_WIDTH_PT);
                     self.push_cmd(DrawCommand::Line {
@@ -330,8 +375,10 @@ impl<'a> Paginator<'a> {
                         color: Color::from_hex(0xCCCCCC),
                         width: 0.5,
                     });
+                    0.0
+                } else {
+                    0.0
                 }
-                0.0
             }
         };
 
@@ -697,6 +744,9 @@ impl<'a> Paginator<'a> {
     fn estimate_height(&self, node_idx: LayoutNodeIdx) -> f32 {
         let node = &self.layout.nodes[node_idx];
         let styles = self.styled.get(node.arena_id).styles.clone();
+        if matches!(node.kind, BoxKind::Figure) && matches!(node.content, LayoutContent::Empty) {
+            return Self::figure_placeholder_height_pt(&styles);
+        }
         let bold = styles.font_weight == FontWeight::Bold;
         match &node.content {
             LayoutContent::Text(t) => {

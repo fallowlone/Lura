@@ -161,6 +161,7 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
             BoxKind::Grid  => taffy::Display::Grid,
             BoxKind::Table => taffy::Display::Block,  // block: стекирует строки вертикально
             BoxKind::Row   => taffy::Display::Flex,   // flex-row: ячейки рядом
+            BoxKind::Figure => taffy::Display::Flex, // column stack: asset + caption
             _ => taffy::Display::Block,
         },
     };
@@ -230,6 +231,7 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
         flex_direction: match kind {
             BoxKind::Page => FlexDirection::Column, // вертикальный стек блоков
             BoxKind::Row  => FlexDirection::Row,    // горизонтальный стек ячеек
+            BoxKind::Figure => FlexDirection::Column,
             _             => FlexDirection::Row,
         },
         // flex-grow для CELL: берём из стилей (default 1.0 — равные колонки)

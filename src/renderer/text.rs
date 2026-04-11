@@ -1,4 +1,4 @@
-use crate::parser::ast::{Block, Content, Document};
+use crate::parser::ast::{Block, Content, Document, Value};
 
 pub fn render(doc: &Document) -> String {
     let mut out = String::new();
@@ -25,8 +25,57 @@ fn render_block(block: &Block, doc: &Document, out: &mut String, depth: usize) {
         "H3" => {
             out.push_str(&format!("### {}\n\n", extract_text(block)));
         }
+        "H4" => {
+            out.push_str(&format!("#### {}\n\n", extract_text(block)));
+        }
+        "H5" => {
+            out.push_str(&format!("##### {}\n\n", extract_text(block)));
+        }
+        "H6" => {
+            out.push_str(&format!("###### {}\n\n", extract_text(block)));
+        }
         "P" => {
             out.push_str(&format!("{}\n\n", extract_text(block)));
+        }
+        "CODE" => {
+            out.push_str("```\n");
+            out.push_str(&extract_text(block));
+            out.push_str("\n```\n\n");
+        }
+        "TABLE" => {
+            out.push_str("--- table ---\n");
+            render_children(block, doc, out, depth);
+            out.push('\n');
+        }
+        "ROW" => {
+            render_children(block, doc, out, depth);
+        }
+        "CELL" => {
+            let t = extract_text(block);
+            out.push_str(&format!("  · {}\n", t));
+        }
+        "FIGURE" => {
+            out.push_str("[figure]\n");
+            if let Content::Children(children) = &block.content {
+                for &child in children {
+                    render_block(doc.block(child), doc, out, depth + 1);
+                }
+            } else {
+                if let Some(Value::Str(src)) = block.attrs.get("src") {
+                    out.push_str(&format!("  (image: {})\n", src));
+                }
+                if let Some(Value::Str(c)) = block.attrs.get("caption") {
+                    out.push_str(&format!("  caption: {}\n", c));
+                }
+            }
+            out.push_str("\n");
+        }
+        "IMAGE" => {
+            if let Some(Value::Str(src)) = block.attrs.get("src") {
+                out.push_str(&format!("![image]({})\n\n", src));
+            } else {
+                out.push_str("[image]\n\n");
+            }
         }
         "GRID" => {
             render_children(block, doc, out, depth);

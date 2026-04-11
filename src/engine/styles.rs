@@ -11,7 +11,8 @@ pub enum BoxKind {
     Row,
     Cell,
     Grid,
-    Image,
+    /// Semantic figure: optional `IMAGE` child plus caption blocks; raster decode is not wired yet.
+    Figure,
     Code,
     Quote,
     List,
@@ -41,8 +42,9 @@ impl BoxKind {
             "TABLE" => BoxKind::Table,
             "ROW"   => BoxKind::Row,
             "CELL"  => BoxKind::Cell,
-            "GRID"  => BoxKind::Grid,
-            "IMAGE" => BoxKind::Image,
+            "GRID"   => BoxKind::Grid,
+            "FIGURE" => BoxKind::Figure,
+            "IMAGE"  => BoxKind::Figure,
             "CODE"  => BoxKind::Code,
             "QUOTE" => BoxKind::Quote,
             "LIST"  => BoxKind::List,
@@ -225,6 +227,9 @@ impl ResolvedStyles {
             }
             BoxKind::Hr => {
                 s.margin = EdgeInsets::new(3.0, 0.0, 3.0, 0.0);
+            }
+            BoxKind::Figure => {
+                s.margin = EdgeInsets::new(2.0, 0.0, 4.0, 0.0);
             }
             _ => {}
         }
