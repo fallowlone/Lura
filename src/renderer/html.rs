@@ -1,3 +1,4 @@
+use crate::engine::grid_tracks::{parse_grid_columns_value, tracks_to_css, GridColumnTrack};
 use crate::parser::ast::{Block, Content, Document, Value};
 
 pub fn render(doc: &Document) -> String {
@@ -507,16 +508,17 @@ fn build_inline_style(block: &Block) -> String {
     }
 }
 
-/// Build grid-template-columns from GRID columns attr
+/// Build grid-template-columns from GRID columns attr (согласовано с engine resolver).
 fn grid_style(block: &Block) -> String {
-    if let Some(val) = block.attrs.get("columns") {
-        let n = match val {
-            Value::Number(n) => *n as usize,
-            Value::Str(s) => s.parse::<usize>().unwrap_or(2),
-            _ => 2,
-        };
-        format!("grid-template-columns: {}", vec!["1fr"; n].join(" "))
-    } else {
-        "grid-template-columns: 1fr 1fr".to_string()
+    let mut tracks = vec![GridColumnTrack::Fr(1.0)];
+    if let Some(value) = block
+        .attrs
+        .get("columns")
+        .or_else(|| block.attrs.get("grid-columns"))
+    {
+        if let Some(parsed) = parse_grid_columns_value(value) {
+            tracks = parsed;
+        }
     }
+    format!("grid-template-columns: {}", tracks_to_css(&tracks))
 }

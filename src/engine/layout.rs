@@ -7,6 +7,7 @@
 
 use taffy::prelude::*;
 use super::arena::{DocumentArena, NodeId as ArenaNodeId};
+use super::grid_tracks::tracks_to_taffy_components;
 use super::styles::{BoxContent, BoxKind, Display, InlineRun};
 
 // ─── Константы ────────────────────────────────────────────────────────────────
@@ -200,10 +201,9 @@ fn styled_box_to_taffy_style(styles: &super::styles::ResolvedStyles, kind: &BoxK
         height: styles.max_height.map(|v| v * MM_TO_PT).map(Dimension::length).unwrap_or(Dimension::auto()),
     };
 
-    // Для grid-блоков задаём колонки
+    // Для grid-блоков задаём колонки (fr / длины / auto из атрибута columns)
     let grid_template_columns = if matches!(display, taffy::Display::Grid) {
-        let cols = styles.grid_columns.unwrap_or(1);
-        vec![fr(1.0); cols]
+        tracks_to_taffy_components(&styles.grid_column_tracks)
     } else {
         vec![]
     };
