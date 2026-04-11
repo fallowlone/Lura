@@ -5,6 +5,7 @@ use crate::engine::grid_tracks::GridColumnTrack;
 use crate::engine::layout::compute_layout;
 use crate::engine::paginate::{paginate, DrawCommand};
 use crate::engine::resolver::build_styled_tree;
+use crate::engine::{render, ExportFormat, ExportOptions};
 use crate::engine::styles::{BoxContent, BoxKind, StyledBox};
 use crate::lexer::Lexer;
 use crate::parser::{self, Parser};
@@ -136,5 +137,57 @@ fn empty_image_yields_placeholder_rect_in_page_tree() {
     assert!(
         placeholders >= 1,
         "expected at least one stroked filled rect as image placeholder"
+    );
+}
+
+/// `{{sec}}` in heading content is expanded to the outline number (`docs/SPEC.md`).
+/// Leading `{` must be escaped as `\{` so the lexer does not parse attrs.
+#[test]
+fn pipeline_heading_sec_placeholder_svg() {
+    let fol = r#"PAGE(H1(\{{sec}} Alpha) H1(\{{sec}} Beta))"#;
+    let doc = load_fol(fol);
+    let bytes = render(
+        &doc,
+        ExportOptions {
+            format: ExportFormat::Svg,
+        },
+    );
+    let s = String::from_utf8(bytes).expect("utf8 svg");
+    assert!(s.contains("Alpha"), "heading body missing: {}", &s[..s.len().min(500)]);
+    assert!(s.contains("Beta"));
+    assert!(s.contains(">1</text>") || s.contains(">1 <"));
+    assert!(s.contains(">2</text>") || s.contains(">2 <"));
+}
+
+/// `{{page:id}}` resolves to the 1-based start page of the target block.
+#[test]
+fn page_map_records_explicit_heading_id() {
+    let fol = r#"PAGE(H1[target](Title) P(x))"#;
+    let doc = load_fol(fol);
+    let styled = build_styled_tree(&doc);
+    let layout = compute_layout(&styled);
+    let tree = paginate(&layout, &styled);
+    assert!(
+        tree.block_start_page.contains_key("target"),
+        "map={:?}",
+        tree.block_start_page
+    );
+}
+
+#[test]
+fn pipeline_page_placeholder_svg() {
+    let fol = r#"PAGE(H1[target](Title) P(On page \{{page:target}}.))"#;
+    let doc = load_fol(fol);
+    let bytes = render(
+        &doc,
+        ExportOptions {
+            format: ExportFormat::Svg,
+        },
+    );
+    let s = String::from_utf8(bytes).expect("utf8 svg");
+    assert!(
+        s.contains(">1.<") || s.contains(">1</text>"),
+        "expected substituted page digit in SVG, got: {}",
+        &s[..s.len().min(1200)]
     );
 }

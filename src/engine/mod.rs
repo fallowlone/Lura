@@ -1,5 +1,7 @@
 pub mod arena;
+pub mod counters;
 pub mod grid_tracks;
+pub mod introspection;
 pub mod styles;
 pub mod resolver;
 pub mod layout;
@@ -39,22 +41,44 @@ impl Default for ExportOptions {
 /// Full pipeline: `Document` → bytes for the chosen format.
 ///
 /// 1. Resolver:  AST → StyledTree (Arena)
-/// 2. Layout:    StyledTree → LayoutTree (taffy)
-/// 3. Paginate:  LayoutTree → PageTree (A4 pages)
-/// 4. Backend:   PageTree → export bytes (PDF/SVG)
+/// 2. Counters:  outline numbers + `{{sec}}` in headings (`docs/SPEC.md`)
+/// 3. Layout:    StyledTree → LayoutTree (taffy)
+/// 4. Paginate:  LayoutTree → PageTree (A4 pages), optional `{{page:id}}` passes
+/// 5. Backend:   PageTree → export bytes (PDF/SVG)
 pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
     let key = render_cache_key(doc, options);
     if let Some(cached) = render_cache().lock().ok().and_then(|m| m.get(&key).cloned()) {
         return cached;
     }
 
-    let styled = resolver::build_styled_tree(doc);
-    let layout = layout::compute_layout(&styled);
-    let pages  = paginate::paginate(&layout, &styled);
+    let mut styled = resolver::build_styled_tree(doc);
+    let heading_nums = counters::compute_heading_numbers(&styled);
+    counters::apply_sec_placeholders(&mut styled, &heading_nums);
+
+    const MAX_PAGE_PASSES: usize = 5;
+    let mut page_tree = paginate::PageTree {
+        pages: Vec::new(),
+        block_start_page: std::collections::HashMap::new(),
+    };
+    let mut prev_fp: Option<u64> = None;
+    for _ in 0..MAX_PAGE_PASSES {
+        let layout = layout::compute_layout(&styled);
+        page_tree = paginate::paginate(&layout, &styled);
+        if !introspection::arena_has_page_placeholders(&styled) {
+            break;
+        }
+        let fp = introspection::fingerprint_page_map(&page_tree.block_start_page);
+        // Apply after reading the map; then detect stable maps (no reflow change) to stop.
+        introspection::apply_page_placeholders(&mut styled, &page_tree.block_start_page);
+        if prev_fp == Some(fp) {
+            break;
+        }
+        prev_fp = Some(fp);
+    }
 
     let bytes = match options.format {
-        ExportFormat::Pdf => backend::pdf::render(&pages),
-        ExportFormat::Svg => backend::svg::render(&pages).into_bytes(),
+        ExportFormat::Pdf => backend::pdf::render(&page_tree),
+        ExportFormat::Svg => backend::svg::render(&page_tree).into_bytes(),
     };
 
     cache_render(key, &bytes);

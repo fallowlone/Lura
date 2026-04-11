@@ -3,6 +3,8 @@
 /// Sequential `cursor_y` drives vertical flow.
 /// X position and width come from taffy.
 /// For GRID: `cursor_y` is saved and restored per cell in each row.
+use std::collections::HashMap;
+
 use super::layout::{
     LayoutContent, LayoutNodeIdx, LayoutTree, A4_HEIGHT_PT, A4_WIDTH_PT, CONTENT_WIDTH_PT,
     MM_TO_PT, PAGE_MARGIN_PT,
@@ -65,12 +67,15 @@ impl Page {
 #[derive(Debug)]
 pub struct PageTree {
     pub pages: Vec<Page>,
+    /// Stable block `id` → 1-based page index where the block first enters pagination.
+    pub block_start_page: HashMap<String, u32>,
 }
 
 impl PageTree {
     pub fn new() -> Self {
         Self {
             pages: vec![Page::new()],
+            block_start_page: HashMap::new(),
         }
     }
 }
@@ -93,6 +98,7 @@ struct Paginator<'a> {
     styled: &'a super::arena::DocumentArena,
     pages: Vec<Page>,
     cursor_y: f32,
+    block_start_page: HashMap<String, u32>,
     /// Counter for the current ordered list (`None` = bulleted)
     list_item_counter: Option<usize>,
     page_header: Option<String>,
@@ -106,10 +112,20 @@ impl<'a> Paginator<'a> {
             styled,
             pages: vec![Page::new()],
             cursor_y: CONTENT_TOP,
+            block_start_page: HashMap::new(),
             list_item_counter: None,
             page_header: None,
             page_footer: None,
         }
+    }
+
+    fn record_block_start(&mut self, arena_id: super::arena::NodeId) {
+        let id = self.styled.get(arena_id).id.clone();
+        if id.is_empty() {
+            return;
+        }
+        let page_1based = self.pages.len() as u32;
+        self.block_start_page.entry(id).or_insert(page_1based);
     }
 
     fn new_page(&mut self) {
@@ -194,6 +210,7 @@ impl<'a> Paginator<'a> {
 
     fn place_node(&mut self, node_idx: LayoutNodeIdx) -> f32 {
         let node = self.layout.nodes[node_idx].clone();
+        self.record_block_start(node.arena_id);
         let styles = self.styled.get(node.arena_id).styles.clone();
         let bold = styles.font_weight == FontWeight::Bold;
         let margin_top = styles.margin.top * MM_TO_PT;
@@ -834,7 +851,10 @@ pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> Pa
         }
     }
 
-    PageTree { pages: pager.pages }
+    PageTree {
+        pages: pager.pages,
+        block_start_page: pager.block_start_page,
+    }
 }
 #[cfg(test)]
 mod tests {
