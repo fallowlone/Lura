@@ -45,6 +45,8 @@ struct TextWidthKey {
     text_hash: u64,
     text_len: usize,
     font_size_bits: u32,
+    letter_spacing_bits: u32,
+    word_spacing_bits: u32,
     bold: bool,
 }
 
@@ -173,13 +175,13 @@ pub fn text_width_pt_with_spacing(
         text_hash: stable_hash(text),
         text_len: text.len(),
         font_size_bits: font_size_pt.to_bits(),
+        letter_spacing_bits: letter_spacing_pt.to_bits(),
+        word_spacing_bits: word_spacing_pt.to_bits(),
         bold,
     };
 
-    if letter_spacing_pt == 0.0 && word_spacing_pt == 0.0 {
-        if let Some(cached) = text_width_cache().lock().ok().and_then(|m| m.get(&key).copied()) {
-            return cached;
-        }
+    if let Some(cached) = text_width_cache().lock().ok().and_then(|m| m.get(&key).copied()) {
+        return cached;
     }
 
     let mut width = if let Some(shaped) = shape_text_width_pt(text, font_size_pt, bold) {
@@ -197,9 +199,7 @@ pub fn text_width_pt_with_spacing(
         width += word_spacing_pt * spaces;
     }
 
-    if letter_spacing_pt == 0.0 && word_spacing_pt == 0.0 {
-        cache_text_width(key, width);
-    }
+    cache_text_width(key, width);
     width
 }
 
@@ -453,9 +453,9 @@ pub fn break_inline_runs(
                 if space_count > 0.0 {
                     let add = extra * space_count;
                     frag.width += add;
-                    line.width += add;
                 }
             }
+            line.width = max_width_pt;
         }
     }
 
