@@ -2,7 +2,7 @@ mod cli;
 
 use clap::Parser as ClapParser;
 use cli::{Cli, Commands};
-use folio::{engine, lexer::Lexer, parser, parser::Parser, renderer};
+use lura::{engine, lexer::Lexer, parser, parser::Parser, renderer};
 use std::fs;
 use std::process;
 use std::process::Command;
@@ -97,9 +97,8 @@ fn main() {
             let result = match format.as_str() {
                 "json" => renderer::json::render(&doc),
                 "text" => renderer::text::render(&doc),
-                "html" => renderer::html::render(&doc),
                 other => {
-                    eprintln!("error: unknown format '{other}'. Use json, text, html, pdf, or svg.");
+                    eprintln!("error: unknown format '{other}'. Use json, text, pdf, or svg.");
                     process::exit(1);
                 }
             };
@@ -181,7 +180,7 @@ fn read_file(path: &std::path::Path) -> String {
     })
 }
 
-fn load_document(path: &std::path::Path) -> folio::parser::ast::Document {
+fn load_document(path: &std::path::Path) -> lura::parser::ast::Document {
     let input = read_file(path);
     let mut lexer = Lexer::new(&input);
     let tokens = lexer.tokenize();
@@ -199,7 +198,7 @@ fn temp_print_pdf_path() -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("folio-print-{}-{}.pdf", process::id(), ts))
+    std::env::temp_dir().join(format!("lura-print-{}-{}.pdf", process::id(), ts))
 }
 
 fn build_print_command(

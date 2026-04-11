@@ -1,4 +1,4 @@
-use folio::engine::backend::painter::capability_matrix;
+use lura::engine::backend::painter::capability_matrix;
 
 #[test]
 fn pdf_svg_capabilities_are_parity_baseline() {

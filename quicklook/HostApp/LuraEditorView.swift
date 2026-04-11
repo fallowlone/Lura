@@ -49,7 +49,8 @@ struct LuraEditorView: View {
     @ObservedObject var document: LuraFileDocument
     let onClose: () -> Void
 
-    @State private var previewHTML: String = ""
+    @State private var previewPDFData: Data?
+    @State private var previewError: String?
     @State private var showPreview: Bool = true
     @State private var debounceTask: Task<Void, Never>?
 
@@ -106,13 +107,13 @@ struct LuraEditorView: View {
                     Toggle(isOn: $showPreview) {
                         Label("Preview", systemImage: "eye")
                     }
-                    .help("Show or hide HTML preview")
+                    .help("Show or hide PDF preview (same pipeline as export)")
                 }
             }
         }
         .onAppear {
             appModel.editorIsDirty = document.isDirty
-            previewHTML = FolioRenderFFI.renderHTML(source: document.text)
+            applyPreviewOutput(LuraRenderFFI.renderPDF(source: document.text))
         }
         .onChange(of: document.text) { newValue in
             appModel.editorIsDirty = document.isDirty
@@ -120,7 +121,7 @@ struct LuraEditorView: View {
             debounceTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: previewDebounceNs)
                 guard !Task.isCancelled else { return }
-                previewHTML = FolioRenderFFI.renderHTML(source: newValue)
+                applyPreviewOutput(LuraRenderFFI.renderPDF(source: newValue))
             }
         }
         .onDisappear {
@@ -143,14 +144,31 @@ struct LuraEditorView: View {
     }
 
     private var previewPane: some View {
-        WebPreviewRepresentable(html: previewHTML)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-            .padding(8)
-            .background(Color(nsColor: .controlBackgroundColor))
+        ZStack {
+            PDFPreviewRepresentable(pdfData: previewPDFData)
+            if let err = previewError {
+                ScrollView {
+                    Text(err)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                }
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.92))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .padding(8)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func applyPreviewOutput(_ out: LuraPdfFFI.Output) {
+        previewPDFData = out.pdfData
+        previewError = out.errorMessage
     }
 
     private func saveDocument() {
@@ -166,7 +184,7 @@ struct LuraEditorView: View {
         do {
             try document.revert()
             appModel.editorIsDirty = false
-            previewHTML = FolioRenderFFI.renderHTML(source: document.text)
+            applyPreviewOutput(LuraRenderFFI.renderPDF(source: document.text))
         } catch {
             presentAlert(title: "Revert failed", message: error.localizedDescription)
         }

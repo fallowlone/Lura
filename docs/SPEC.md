@@ -1,9 +1,9 @@
-# Lura / Folio format specification (draft)
+# Lura format specification (draft)
 
 **Version:** 0.1-draft  
 **Status:** working document; syntax and engine evolve together.
 
-This file is the single place for normative behavior that is implemented or planned. Product naming (Lura vs Folio crate name) is described in [PROGRESS.md](../PROGRESS.md).
+This file is the single place for normative behavior that is implemented or planned. Tooling and crate name: **`lura`** (see [PROGRESS.md](../PROGRESS.md)).
 
 ---
 

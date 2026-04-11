@@ -3,7 +3,7 @@ STYLES({
 })
 
 PAGE(
-  H1({color: #accent} Hello from Folio)
+  H1({color: #accent} Hello from Lura)
   P(This is a sample document in the .fol format.)
   P(It is smaller, readable, and git-friendly.)
 )

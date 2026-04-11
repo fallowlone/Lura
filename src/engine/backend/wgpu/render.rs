@@ -27,7 +27,7 @@ fn to_ndc(px: f32, py: f32, cw: f32, ch: f32) -> [f32; 2] {
     [px / cw * 2.0 - 1.0, 1.0 - py / ch * 2.0]
 }
 
-fn folio_to_linear_rgba(c: Color) -> [f32; 4] {
+fn lura_to_linear_rgba(c: Color) -> [f32; 4] {
     [c.r, c.g, c.b, 1.0]
 }
 
@@ -40,7 +40,7 @@ fn glyphon_color(c: Color) -> glyphon::Color {
 }
 
 fn rect_fill_vertices(x: f32, y: f32, w: f32, h: f32, c: Color, cw: f32, ch: f32) -> [SolidVertex; 6] {
-    let col = folio_to_linear_rgba(c);
+    let col = lura_to_linear_rgba(c);
     let v = |px: f32, py: f32| SolidVertex {
         pos: to_ndc(px, py, cw, ch),
         color: col,
@@ -90,7 +90,7 @@ fn line_vertices(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, c: Color, cw: f
     let len = (dx * dx + dy * dy).sqrt().max(1e-6);
     let nx = (-dy / len) * hw;
     let ny = (dx / len) * hw;
-    let col = folio_to_linear_rgba(c);
+    let col = lura_to_linear_rgba(c);
     let v = |px: f32, py: f32| SolidVertex {
         pos: to_ndc(px, py, cw, ch),
         color: col,
@@ -291,16 +291,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
 fn create_solid_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("folio solid"),
+        label: Some("lura solid"),
         source: wgpu::ShaderSource::Wgsl(SOLID_SHADER.into()),
     });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("folio solid pl"),
+        label: Some("lura solid pl"),
         bind_group_layouts: &[],
         immediate_size: 0,
     });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("folio solid pipeline"),
+        label: Some("lura solid pipeline"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
             module: &shader,
@@ -345,14 +345,14 @@ fn read_rgba_texture(
     let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
     let buffer_size = (padded_bytes_per_row * height) as u64;
     let read_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("folio readback"),
+        label: Some("lura readback"),
         size: buffer_size.max(align as u64),
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("folio copy tex"),
+        label: Some("lura copy tex"),
     });
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
@@ -424,7 +424,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
         .map_err(|_| ())?;
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
-            label: Some("folio wgpu"),
+            label: Some("lura wgpu"),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::downlevel_webgl2_defaults()
                 .using_resolution(adapter.limits()),
@@ -438,7 +438,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
     let ch = height as f32;
 
     let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("folio target"),
+        label: Some("lura target"),
         size: wgpu::Extent3d {
             width,
             height,
@@ -484,7 +484,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
     let mut swash_cache = SwashCache::new();
 
     let mut solid_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("folio solid vb"),
+        label: Some("lura solid vb"),
         size: 65536,
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
@@ -500,11 +500,11 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
 
     if segments.is_empty() {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("folio clear only"),
+            label: Some("lura clear only"),
         });
         {
             let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("folio clear"),
+                label: Some("lura clear"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,
@@ -534,7 +534,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                 let need = (verts.len() * std::mem::size_of::<SolidVertex>()) as u64;
                 if need > solid_vertex_buffer.size() {
                     solid_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("folio solid vb grown"),
+                        label: Some("lura solid vb grown"),
                         size: need.next_power_of_two().max(65536),
                         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                         mapped_at_creation: false,
@@ -543,7 +543,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                 queue.write_buffer(&solid_vertex_buffer, 0, bytemuck::cast_slice(&verts));
 
                 let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("folio solid"),
+                    label: Some("lura solid"),
                 });
                 {
                     let load = if first_pass {
@@ -553,7 +553,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                         wgpu::LoadOp::Load
                     };
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("folio solid pass"),
+                        label: Some("lura solid pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
                             depth_slice: None,
@@ -600,7 +600,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                     .map_err(|_| ())?;
 
                 let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("folio text"),
+                    label: Some("lura text"),
                 });
                 {
                     let load = if first_pass {
@@ -610,7 +610,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                         wgpu::LoadOp::Load
                     };
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("folio text pass"),
+                        label: Some("lura text pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
                             depth_slice: None,
@@ -637,11 +637,11 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
     if first_pass {
         // No draw commands: still clear once.
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("folio clear empty cmds"),
+            label: Some("lura clear empty cmds"),
         });
         {
             let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("folio clear empty"),
+                label: Some("lura clear empty"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,

@@ -1,8 +1,8 @@
-use folio::engine::{self, ExportFormat, ExportOptions};
-use folio::parser::{self, Parser};
-use folio::lexer::Lexer;
+use lura::engine::{self, ExportFormat, ExportOptions};
+use lura::parser::{self, Parser};
+use lura::lexer::Lexer;
 
-fn parse_doc(input: &str) -> folio::parser::ast::Document {
+fn parse_doc(input: &str) -> lura::parser::ast::Document {
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize();
     let mut parser = Parser::new(tokens);

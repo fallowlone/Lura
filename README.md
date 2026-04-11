@@ -1,13 +1,13 @@
-# Folio
+# Lura
 
 A new document format to replace PDF.
 
 ## Why
 
 PDF was designed for print in 1993. It stores visual coordinates, not meaning.
-Folio stores semantic structure — headings, paragraphs, tables — not pixel positions.
+Lura stores semantic structure — headings, paragraphs, tables — not pixel positions.
 
-|                | PDF    | Folio           |
+|                | PDF    | Lura            |
 | -------------- | ------ | --------------- |
 | Human-readable | No     | Yes             |
 | Git-friendly   | No     | Yes             |
@@ -48,9 +48,10 @@ Early development. The pipeline works for experimentation; the **written specifi
 ### Done (high level)
 
 - [x] Lexer and parser (arena AST, variables, inline spans, stable IDs)
-- [x] Exports: JSON, plain text, HTML
+- [x] Exports: JSON, plain text; binary via PDF and SVG (same layout pipeline)
 - [x] Layout engine v2: taffy → A4 pagination → PDF (`pdf-writer`) and SVG
-- [x] CLI: `parse`, `validate`, `convert` (json | text | html | pdf | svg), `render`, `printers`, `print` (CUPS on Unix)
+- [x] CLI: `parse`, `validate`, `convert` (json | text | pdf | svg), `render`, `printers`, `print` (CUPS on Unix)
+- [x] macOS Lura app + Quick Look: native PDF preview (`PDFKit`) via FFI `lura_render_pdf` / `lura_free_pdf_result` (no HTML/CSS)
 
 ### Not done / partial
 

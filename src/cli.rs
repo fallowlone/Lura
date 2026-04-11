@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "folio", about = "Folio document format CLI")]
+#[command(name = "lura", about = "Lura document format CLI")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -18,10 +18,10 @@ pub enum Commands {
     Validate {
         file: PathBuf,
     },
-    /// Convert a .fol file to JSON, text, HTML, PDF, or SVG
+    /// Convert a .fol file to JSON, text, PDF, or SVG
     Convert {
         file: PathBuf,
-        /// Output format: json, text, html, pdf, svg (default: json)
+        /// Output format: json, text, pdf, svg (default: json)
         #[arg(long, default_value = "json")]
         format: String,
         /// Write output to file instead of stdout

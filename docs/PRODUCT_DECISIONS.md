@@ -6,14 +6,12 @@ Decisions called out as open in [PROGRESS.md](../PROGRESS.md) are recorded here 
 
 ---
 
-## Folio → Lura rename scope
+## Lura product name and crate
 
-**Status:** deferred (documentation-first).
+**Status:** aligned (2026-04-12).
 
-**Current stance:**
-
-- **Now:** Public-facing format name **Lura** and extension **`.lura`** are used in spec/marketing copy ([PROGRESS.md](../PROGRESS.md)); Rust crate and repo may stay `folio` until a dedicated migration.
-- **Later:** Optional unified rename of `Cargo.toml` package name, binary name, and GitHub repo — separate change set with semver and migration notes.
+- **Format / product name:** **Lura**; **CLI and Rust library crate:** **`lura`** (`lura` binary, `liblura.dylib` for macOS FFI).
+- **Git repo / workspace folder** may still be `Folio` on disk until a separate GitHub rename.
 
 ---
 
@@ -37,7 +35,7 @@ Tracked for upcoming work, not part of the counters/introspection milestone:
 
 | Item | Notes |
 |------|--------|
-| `folio diff` | AST or stable-id diff for git-friendly workflows ([CLAUDE.md](../CLAUDE.md)). |
+| `lura diff` | AST or stable-id diff for git-friendly workflows ([CLAUDE.md](../CLAUDE.md)). |
 | FIGURE end-to-end | Parser → layout → export beyond placeholder when assets are wired. |
 | CI | `cargo test` and `cargo clippy` on push (add workflow if missing). |
 | WGPU preview | Replace stub behind `wgpu-preview` when preview UX is defined. |

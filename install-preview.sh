@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "==> Building Folio CLI (Rust)..."
+echo "==> Building Lura CLI / library (Rust)..."
 export PATH="$HOME/.cargo/bin:$PATH"
 if [ -f "$HOME/.cargo/env" ]; then
     source "$HOME/.cargo/env"
@@ -21,11 +21,11 @@ mkdir -p "$APP_DIR/Contents/Frameworks"
 mkdir -p "$EXT_DIR/Contents/MacOS"
 mkdir -p "$EXT_DIR/Contents/Frameworks"
 
-echo "==> Copying libfolio.dylib into host app (editor preview)..."
-cp target/release/libfolio.dylib "$APP_DIR/Contents/Frameworks/libfolio.dylib"
+echo "==> Copying liblura.dylib into host app (editor preview)..."
+cp target/release/liblura.dylib "$APP_DIR/Contents/Frameworks/liblura.dylib"
 
-echo "==> Copying libfolio.dylib into Extension bundle..."
-cp target/release/libfolio.dylib "$EXT_DIR/Contents/Frameworks/libfolio.dylib"
+echo "==> Copying liblura.dylib into Extension bundle..."
+cp target/release/liblura.dylib "$EXT_DIR/Contents/Frameworks/liblura.dylib"
 
 echo "==> Copying Info.plist files..."
 cp quicklook/HostInfo.plist "$APP_DIR/Contents/Info.plist"
@@ -33,33 +33,34 @@ cp quicklook/ExtensionInfo.plist "$EXT_DIR/Contents/Info.plist"
 
 echo "==> Compiling Host App (SwiftUI)..."
 HOST_SWIFT=(
+    quicklook/Shared/LuraPdfFFI.swift
     quicklook/HostApp/LuraDebugLog.swift
     quicklook/HostApp/LuraTemplates.swift
     quicklook/HostApp/RecentFilesStore.swift
-    quicklook/HostApp/FolioRenderFFI.swift
+    quicklook/HostApp/LuraRenderFFI.swift
     quicklook/HostApp/LuraFileDocument.swift
-    quicklook/HostApp/WebPreviewRepresentable.swift
+    quicklook/HostApp/PDFPreviewRepresentable.swift
     quicklook/HostApp/LuraEditorView.swift
     quicklook/HostApp/LuraAppModel.swift
     quicklook/HostApp/WelcomeView.swift
     quicklook/HostApp/LuraAppDelegate.swift
     quicklook/HostApp/LuraApp.swift
 )
+# Host is a SwiftUI @main app; do not use -parse-as-library (no _main would be linked).
 swiftc "${HOST_SWIFT[@]}" \
-    -parse-as-library \
     -o "$APP_DIR/Contents/MacOS/$APP_NAME" \
     -target arm64-apple-macos13.0 \
     -framework SwiftUI \
     -framework AppKit \
     -framework UniformTypeIdentifiers \
-    -framework WebKit
+    -framework PDFKit
 
 echo "==> Compiling Quick Look Extension (Swift)..."
-swiftc quicklook/Extension/PreviewViewController.swift \
+swiftc quicklook/Shared/LuraPdfFFI.swift quicklook/Extension/PreviewViewController.swift \
     -parse-as-library \
     -module-name "$EXT_NAME" \
     -o "$EXT_DIR/Contents/MacOS/$EXT_NAME" \
-    -framework Cocoa -framework Quartz -framework WebKit \
+    -framework Cocoa -framework Quartz -framework PDFKit \
     -target arm64-apple-macos12.0 \
     -Xlinker -e -Xlinker _NSExtensionMain
 
@@ -94,8 +95,8 @@ EOF
 
 echo "==> Code Signing..."
 # Required for modern macOS otherwise Quick Look will refuse to load the extension
-codesign --force --sign - --entitlements "$BUILD_DIR/InheritEntitlements.plist" "$APP_DIR/Contents/Frameworks/libfolio.dylib"
-codesign --force --sign - --entitlements "$BUILD_DIR/InheritEntitlements.plist" "$EXT_DIR/Contents/Frameworks/libfolio.dylib"
+codesign --force --sign - --entitlements "$BUILD_DIR/InheritEntitlements.plist" "$APP_DIR/Contents/Frameworks/liblura.dylib"
+codesign --force --sign - --entitlements "$BUILD_DIR/InheritEntitlements.plist" "$EXT_DIR/Contents/Frameworks/liblura.dylib"
 codesign --force --sign - --entitlements "$BUILD_DIR/Entitlements.plist" "$EXT_DIR"
 codesign --force --sign - --entitlements "$BUILD_DIR/Entitlements.plist" "$APP_DIR"
 
@@ -104,7 +105,7 @@ mkdir -p ~/Applications
 cp -R "$APP_DIR" ~/Applications/
 APP_PATH="$HOME/Applications/$APP_NAME.app"
 
-echo "==> Removing Folio/build/Lura.app staging copy (only ~/Applications copy remains; avoids two Lura entries in Launchpad)."
+echo "==> Removing build/Lura.app staging copy (only ~/Applications copy remains; avoids two Lura entries in Launchpad)."
 rm -rf "$APP_DIR"
 
 echo "==> Registering Quick Look Extension..."
@@ -120,7 +121,7 @@ echo "--------------------------------------------------------"
 echo "DIAGNOSTICS: Checking why pluginkit might be failing..."
 pluginkit -v -m -i com.fallowlone.lura-document-app.PreviewExtension || true
 echo "Retrieving pkd logs (might take a few seconds)..."
-log show --predicate 'process == "pkd"' --last 5m | grep -i -E -A 2 -B 2 'Lura|Folio' || echo "No pkd logs found"
+log show --predicate 'process == "pkd"' --last 5m | grep -i -E -A 2 -B 2 'Lura' || echo "No pkd logs found"
 echo "--------------------------------------------------------"
 echo "Launch: open \"$APP_PATH\""
 echo "Host UI debug (live): log stream --style compact --info --predicate 'subsystem == \"com.fallowlone.lura-document-app\"'"

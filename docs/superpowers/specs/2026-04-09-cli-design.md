@@ -1,18 +1,18 @@
-# CLI Design — Folio
+# CLI Design — Lura
 
 **Date:** 2026-04-09  
 **Status:** Approved
 
 ## Overview
 
-Add a CLI layer to the Folio tool. Users pass `.fol` files as arguments and choose an operation. The existing lexer/parser/renderer pipeline stays unchanged — CLI is a thin dispatch layer on top.
+Add a CLI layer to the Lura tool. Users pass `.fol` / `.lura` files as arguments and choose an operation. The existing lexer/parser/renderer pipeline stays unchanged — CLI is a thin dispatch layer on top.
 
 ## Commands
 
 ```
-folio parse <file>            # tokenize and print tokens (debug use)
-folio validate <file>         # parse and report validity, exit 0 on success / 1 on error
-folio convert <file>          # parse and render to stdout (default: JSON)
+lura parse <file>            # tokenize and print tokens (debug use)
+lura validate <file>         # parse and report validity, exit 0 on success / 1 on error
+lura convert <file>          # parse and render to stdout (default: JSON)
   --format <json|text>        # output format, default: json
   --output <path>             # write result to file instead of stdout
 ```

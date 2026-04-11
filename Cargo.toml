@@ -1,5 +1,5 @@
 [package]
-name = "folio"
+name = "lura"
 version = "0.1.0"
 edition = "2024"
 
@@ -31,5 +31,5 @@ glyphon = { version = "0.10", optional = true }
 bytemuck = { version = "1.14", optional = true, features = ["derive"] }
 
 [lib]
-name = "folio"
+name = "lura"
 crate-type = ["cdylib", "rlib"]

@@ -5,14 +5,14 @@
 
 ## Overview
 
-Every block in a Folio document gets a stable, unique ID. IDs are used for diffing and referencing blocks across document versions. ID appears only in JSON output.
+Every block in a Lura document gets a stable, unique ID. IDs are used for diffing and referencing blocks across document versions. ID appears only in JSON output.
 
 ## Syntax
 
 Optional explicit ID in square brackets immediately after the block name:
 
 ```
-H1[intro]({color: #accent} Hello from Folio)
+H1[intro]({color: #accent} Hello from Lura)
 P(No explicit ID — auto-generated.)
 P[second-para](Explicit ID.)
 ```
@@ -91,7 +91,7 @@ JSON Renderer
             "kind": "H1",
             "id": "intro",
             "attrs": { "color": "#3498DB" },
-            "content": "Hello from Folio"
+            "content": "Hello from Lura"
           },
           {
             "kind": "P",
@@ -109,6 +109,6 @@ JSON Renderer
 ## Out of Scope
 
 - IDs in plain text renderer
-- IDs in `folio parse` token output
+- IDs in `lura parse` token output
 - ID uniqueness validation across a document
 - ID stability guarantees when content changes (content hash by design)

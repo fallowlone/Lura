@@ -8,13 +8,13 @@ STYLES({
 })
 
 PAGE(
-  H1({color: #brand} Folio Capability Showcase 2026)
-  P(This document stress-tests rendering with *mixed inline styling*, **bold accents**, `inline code`, and [links](https://folio.local/spec).)
+  H1({color: #brand} Lura Capability Showcase 2026)
+  P(This document stress-tests rendering with *mixed inline styling*, **bold accents**, `inline code`, and [links](https://lura.local/spec).)
   P({color: #muted} The goal is to produce a large realistic document and compare .fol vs exported PDF sizes.)
   HR()
 
   H2(1. Executive Summary)
-  P(Folio stores semantic blocks instead of visual coordinates. This improves readability, diff quality, and maintainability.)
+  P(Lura stores semantic blocks instead of visual coordinates. This improves readability, diff quality, and maintainability.)
   P({justify: true, word-spacing: 0.4} In this paragraph we enable justification and additional spacing to test line distribution in the text layout pipeline. The renderer should keep stable baseline alignment while preserving inline styles inside wrapped lines.)
 
   H2(2. Quick Feature Matrix)
@@ -68,7 +68,7 @@ PAGE(
   P({justify: true, letter-spacing: 0.1, word-spacing: 0.3} Combined spacing and justification test. The line-builder should distribute content with predictable behavior and no style corruption when moving to next lines.)
 
   H2(4. Long Narrative Block)
-  P({justify: true} Folio is intended for dense technical writing. A large block like this simulates real documentation: architecture rationale, migration notes, compatibility constraints, and implementation caveats. It should paginate safely, keep stable text baseline, and render similarly across PDF and SVG pipelines even when content contains multiple inline style transitions such as *emphasis*, **strong**, `code`, and [references](https://folio.dev/docs).)
+  P({justify: true} Lura is intended for dense technical writing. A large block like this simulates real documentation: architecture rationale, migration notes, compatibility constraints, and implementation caveats. It should paginate safely, keep stable text baseline, and render similarly across PDF and SVG pipelines even when content contains multiple inline style transitions such as *emphasis*, **strong**, `code`, and [references](https://lura.dev/docs).)
   P({justify: true} Additional paragraph for volume. We intentionally keep text long so wrapping occurs many times. This helps validate cache behavior in text measurement, ensures deterministic line splitting, and reveals regressions in paragraph rendering when style options like letter-spacing, word-spacing, or justification are enabled.)
 
   H2(5. Quote and Code Blocks)
@@ -144,9 +144,9 @@ PAGE(
 
 PAGE(
   H1({color: #brand} Integration Scenario: Mixed Inline Everywhere)
-  P(In a single line we combine *italic phrase*, **bold phrase**, `inline code`, and [external ref](https://folio.dev/changelog).)
+  P(In a single line we combine *italic phrase*, **bold phrase**, `inline code`, and [external ref](https://lura.dev/changelog).)
   P(Another line with **bold** then normal text then *italic* then `code` then **bold** again to verify run switching.)
-  P({justify: true} A long justified paragraph with [links](https://folio.dev), **strong fragments**, and *emphasis fragments* should still preserve style flags after wrapping to several lines across the page width.)
+  P({justify: true} A long justified paragraph with [links](https://lura.dev), **strong fragments**, and *emphasis fragments* should still preserve style flags after wrapping to several lines across the page width.)
   P({justify: true, letter-spacing: 0.15} Extra paragraph with letter spacing applied to ensure width calculations and wrapping remain deterministic when spacing differs from defaults.)
   P({justify: true, word-spacing: 0.45} Extra paragraph with word spacing applied to emulate publishing-style typography and stress spacing logic inside the text engine.)
 

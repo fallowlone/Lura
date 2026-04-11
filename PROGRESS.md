@@ -1,4 +1,4 @@
-# PROGRESS.md — Folio (doc format)
+# PROGRESS.md — Lura (document format)
 
 **Updated:** 2026-04-12
 
@@ -6,9 +6,9 @@
 
 ## Branding and files (plan)
 
-- **Public format name:** **Lura** (replacing the working name Folio in product/spec copy).
-- **Document file extension:** **`.lura`**.
-- Repo/crate `folio` may be renamed later; syntax, CLI, docs, and examples migration is a separate decision after naming in code is settled.
+- **Public format name:** **Lura**.
+- **Document file extension:** **`.lura`** (examples may still use `.fol` until bulk rename).
+- **Rust crate / CLI binary:** **`lura`** (`cargo build` produces `liblura.dylib` and the `lura` executable). GitHub repo folder may still be named `Folio` locally; product name in docs is Lura.
 
 ---
 
@@ -81,8 +81,8 @@ Rules:
 
 - [x] AST → JSON
 - [x] AST → plain text
-- [x] AST → plain text: `CELL` with `Content::Children` renders via `render_children` (like HTML), not only `extract_text`
-- [x] AST → HTML
+- [x] AST → plain text: `CELL` with `Content::Children` renders via `render_children` (nested block text), not only `extract_text`
+- [x] ~~AST → HTML~~ removed; preview and tooling use the PDF/SVG engine pipeline only
 - [x] Engine v2: StyledTree → LayoutTree → PageTree → PDF (`pdf-writer`)
 - [x] Engine v2: SVG export
 - [x] Legacy PDF path (`printpdf`) removed
@@ -135,7 +135,7 @@ Rules:
 
 - [x] `parse` — token dump
 - [x] `validate` — syntax check
-- [x] `convert` — json, text, html, pdf, svg
+- [x] `convert` — json, text, pdf, svg
 - [x] `render` — PDF via engine v2
 - [x] `printers` / `print` — CUPS (`lp` / `lpr`) integration (Unix-oriented)
 
@@ -158,4 +158,4 @@ Rules:
 - Storage syntax: human-readable text (not JSON/YAML)
 - Sparse layout: absolute units (mm) in authored model; engine uses pt
 - Certificate: SHA-256 over document (design)
-- Folio = storage format; editors and alternate authoring layers are separate
+- Lura = storage format; editors and alternate authoring layers are separate

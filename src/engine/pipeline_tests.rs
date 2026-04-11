@@ -174,6 +174,24 @@ fn page_map_records_explicit_heading_id() {
     );
 }
 
+/// PDF export uses the same layout pipeline as native preview; header must be stable.
+#[test]
+fn pipeline_pdf_starts_with_magic_bytes() {
+    let fol = r#"PAGE(P(Hello PDF))"#;
+    let doc = load_fol(fol);
+    let bytes = render(
+        &doc,
+        ExportOptions {
+            format: ExportFormat::Pdf,
+        },
+    );
+    assert!(
+        bytes.len() >= 5 && &bytes[..5] == b"%PDF-",
+        "expected PDF header %%-, got {:?}",
+        bytes.get(..12.min(bytes.len()))
+    );
+}
+
 #[test]
 fn pipeline_page_placeholder_svg() {
     let fol = r#"PAGE(H1[target](Title) P(On page \{{page:target}}.))"#;

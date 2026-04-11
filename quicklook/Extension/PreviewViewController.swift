@@ -1,76 +1,99 @@
 import Cocoa
+import PDFKit
 import Quartz
-import WebKit
 
 @objc(PreviewViewController)
 class PreviewViewController: NSViewController, QLPreviewingController {
-    
-    var webView: WKWebView!
+
+    private let pdfView = PDFView()
+    private let errorLabel: NSTextField = {
+        let t = NSTextField(wrappingLabelWithString: "")
+        t.textColor = .labelColor
+        t.isEditable = false
+        t.isHidden = true
+        t.translatesAutoresizingMaskIntoConstraints = false
+        return t
+    }()
 
     override func loadView() {
-        self.webView = WKWebView()
-        self.view = self.webView
+        let container = NSView()
+        pdfView.translatesAutoresizingMaskIntoConstraints = false
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        container.addSubview(pdfView)
+        container.addSubview(errorLabel)
+        NSLayoutConstraint.activate([
+            pdfView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            pdfView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            pdfView.topAnchor.constraint(equalTo: container.topAnchor),
+            pdfView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            errorLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            errorLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            errorLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+        ])
+        self.view = container
+    }
+
+    private func showError(_ message: String) {
+        errorLabel.stringValue = message
+        errorLabel.isHidden = false
+        pdfView.document = nil
+    }
+
+    private func showPDF(data: Data) {
+        errorLabel.isHidden = true
+        pdfView.document = PDFDocument(data: data)
     }
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         let bundle = Bundle(for: type(of: self))
         guard let frameworksPath = bundle.privateFrameworksPath else {
-            let html = "<h1>Missing Frameworks Path</h1>"
-            webView.loadHTMLString(html, baseURL: nil)
+            showError("Missing Frameworks path (expected liblura.dylib in the extension bundle).")
             handler(nil)
             return
         }
-        let dylibPath = (frameworksPath as NSString).appendingPathComponent("libfolio.dylib")
-        
+        let dylibPath = (frameworksPath as NSString).appendingPathComponent("liblura.dylib")
+
         guard let handle = dlopen(dylibPath, RTLD_NOW) else {
             let errStr = String(cString: dlerror())
-            let html = "<h1>dlopen Error</h1><pre>\(errStr)</pre>"
-            webView.loadHTMLString(html, baseURL: nil)
+            showError("dlopen failed: \(errStr)")
             handler(nil)
             return
         }
-        
+
         defer { dlclose(handle) }
-        
-        guard let symRender = dlsym(handle, "folio_render_html"),
-              let symFree = dlsym(handle, "folio_free_string") else {
-            let html = "<h1>dlsym Error</h1><p>Functions not found in the Lura render library (libfolio.dylib).</p>"
-            webView.loadHTMLString(html, baseURL: nil)
+
+        guard let symRender = dlsym(handle, "lura_render_pdf"),
+              let symFree = dlsym(handle, "lura_free_pdf_result") else {
+            showError("dlsym: lura_render_pdf / lura_free_pdf_result not found in liblura.dylib.")
             handler(nil)
             return
         }
-        
-        typealias RenderFunc = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
-        typealias FreeFunc = @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
-        
-        let folio_render_html = unsafeBitCast(symRender, to: RenderFunc.self)
-        let folio_free_string = unsafeBitCast(symFree, to: FreeFunc.self)
-        
+
         do {
             let fileData = try Data(contentsOf: url)
             guard let contentStr = String(data: fileData, encoding: .utf8) else {
-                let html = "<h1>Encoding Error</h1><p>The file is not a valid UTF-8 text file.</p>"
-                webView.loadHTMLString(html, baseURL: nil)
+                showError("The file is not valid UTF-8 text.")
                 handler(nil)
                 return
             }
-            
-            guard let resultPtr = folio_render_html(contentStr) else {
-                let html = "<h1>Render Error</h1><p>Lura library returned null.</p>"
-                webView.loadHTMLString(html, baseURL: nil)
-                handler(nil)
-                return
+
+            let out = LuraPdfFFI.invokeRender(
+                source: contentStr,
+                symRender: symRender,
+                symFree: symFree
+            )
+            if let err = out.errorMessage {
+                showError(err)
+            } else if let data = out.pdfData {
+                showPDF(data: data)
+            } else {
+                showError("No PDF data returned.")
             }
-            
-            defer { folio_free_string(resultPtr) }
-            
-            let resultHtml = String(cString: resultPtr)
-            webView.loadHTMLString(resultHtml, baseURL: nil)
             handler(nil)
-            
         } catch {
-            let html = "<h1>File Access Error</h1><pre>\(error.localizedDescription)</pre>"
-            webView.loadHTMLString(html, baseURL: nil)
+            showError("File read error: \(error.localizedDescription)")
             handler(nil)
         }
     }
