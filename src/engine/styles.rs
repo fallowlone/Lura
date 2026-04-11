@@ -180,60 +180,65 @@ impl ResolvedStyles {
         super::grid_tracks::grid_column_count(&self.grid_column_tracks)
     }
 
-    /// Sensible defaults for a given block kind
+    /// Sensible defaults for a given block kind (parent-independent baseline).
     pub fn for_kind(kind: &BoxKind) -> Self {
         let mut s = Self::default();
+        s.apply_kind_defaults(kind);
+        s
+    }
+
+    /// Apply block-kind defaults on top of accumulated styles (e.g. after inheriting from the parent).
+    pub fn apply_kind_defaults(&mut self, kind: &BoxKind) {
         match kind {
             BoxKind::Heading(1) => {
-                s.font_size = 14.0;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(0.0, 0.0, 4.0, 0.0);
+                self.font_size = 14.0;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(0.0, 0.0, 4.0, 0.0);
             }
             BoxKind::Heading(2) => {
-                s.font_size = 10.5;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(5.0, 0.0, 2.0, 0.0);
+                self.font_size = 10.5;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(5.0, 0.0, 2.0, 0.0);
             }
             BoxKind::Heading(3) => {
-                s.font_size = 10.0;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
+                self.font_size = 10.0;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Heading(_) => {
-                s.font_size = 10.0;
-                s.font_weight = FontWeight::Bold;
-                s.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
+                self.font_size = 10.0;
+                self.font_weight = FontWeight::Bold;
+                self.margin = EdgeInsets::new(3.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Cell => {
-                s.padding = EdgeInsets::new(1.5, 2.0, 1.5, 2.0);
-                s.flex_grow = 1.0;
+                self.padding = EdgeInsets::new(1.5, 2.0, 1.5, 2.0);
+                self.flex_grow = 1.0;
             }
             BoxKind::List => {
-                s.padding = EdgeInsets::new(0.0, 0.0, 0.0, 6.0); // 6mm left indent for items
-                s.margin = EdgeInsets::new(0.0, 0.0, 2.0, 0.0);
+                self.padding = EdgeInsets::new(0.0, 0.0, 0.0, 6.0); // 6mm left indent for items
+                self.margin = EdgeInsets::new(0.0, 0.0, 2.0, 0.0);
             }
             BoxKind::ListItem => {
-                s.margin = EdgeInsets::new(0.0, 0.0, 1.5, 0.0);
+                self.margin = EdgeInsets::new(0.0, 0.0, 1.5, 0.0);
             }
             BoxKind::Code => {
-                s.font_family = "Courier".to_string();
-                s.font_size = 10.0;
-                s.background = Some(Color::from_hex(0xF5F5F5));
-                s.padding = EdgeInsets::uniform(4.0);
+                self.font_family = "Courier".to_string();
+                self.font_size = 10.0;
+                self.background = Some(Color::from_hex(0xF5F5F5));
+                self.padding = EdgeInsets::uniform(4.0);
             }
             BoxKind::Quote => {
-                s.margin = EdgeInsets::new(0.0, 8.0, 4.0, 8.0);
-                s.color = Color::from_hex(0x666666);
+                self.margin = EdgeInsets::new(0.0, 8.0, 4.0, 8.0);
+                self.color = Color::from_hex(0x666666);
             }
             BoxKind::Hr => {
-                s.margin = EdgeInsets::new(3.0, 0.0, 3.0, 0.0);
+                self.margin = EdgeInsets::new(3.0, 0.0, 3.0, 0.0);
             }
             BoxKind::Figure => {
-                s.margin = EdgeInsets::new(2.0, 0.0, 4.0, 0.0);
+                self.margin = EdgeInsets::new(2.0, 0.0, 4.0, 0.0);
             }
             _ => {}
         }
-        s
     }
 }
 

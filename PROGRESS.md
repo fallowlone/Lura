@@ -106,7 +106,8 @@ Rules:
 - [x] Inline layout v1: line builder over runs + mixed-style PDF/SVG
 - [x] Typography v1: `letter-spacing`, `word-spacing`, basic `justify`
 - [x] Pagination rules v2 (base): `keep-with-next`, `keep-together`, row split policy
-- [x] Global deps foundation: multi-pass convergence guard + `counters` / `introspection`
+- [x] Global deps foundation: multi-pass convergence guard
+- [ ] Heading counters and page introspection (`counters` / `introspection` stubs removed as dead code on this branch; restore for TOC/refs)
 - [x] Advanced layout foundation: min/max constraints, float (left/right), page header/footer
 - [x] Export parity: capability matrix + integration smoke tests + cache regression test
 

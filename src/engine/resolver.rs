@@ -1,8 +1,8 @@
 /// Converts parser AST into a StyledTree (arena of StyledBoxes).
 ///
-/// Two passes:
-/// 1. Convert nodes to StyledBox with default styles + explicit attrs
-/// 2. Inherit styles from parent to child (font-size, color, etc.)
+/// Per node: `ResolvedStyles::default()`, then inheritable fields from the parent,
+/// then `apply_kind_defaults` (so H1/CODE defaults are not overwritten by inherited font),
+/// then explicit block attrs.
 
 use crate::parser::ast::{Block, Content, Document, InlineNode, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
@@ -39,13 +39,13 @@ fn convert_block(
     let block = doc.block(ast_node_id);
     let kind = BoxKind::from_str(&block.kind);
 
-    // Start from defaults for this block kind
-    let mut styles = ResolvedStyles::for_kind(&kind);
-
-    // Inherit from parent (inheritable properties only)
+    // Base + inheritable from parent (font-*, color, line-height, text-align).
+    // Then kind defaults (H1 size/weight, CODE monospace, …) so inheritance does not erase them.
+    let mut styles = ResolvedStyles::default();
     if let Some(parent) = parent_styles {
         inherit_styles(&mut styles, parent);
     }
+    styles.apply_kind_defaults(&kind);
 
     // Apply explicit block attrs (override defaults and inheritance)
     apply_attrs(&mut styles, block);
@@ -78,9 +78,9 @@ fn convert_block(
     arena.alloc(node)
 }
 
-/// Copies inheritable CSS properties from parent to child.
-/// Only what typography actually inherits:
-/// font-*, color, line-height, text-align.
+/// Copies inheritable CSS properties from parent to child (`child` is usually
+/// `ResolvedStyles::default()` before `apply_kind_defaults`).
+/// Only: font-*, color, line-height, text-align.
 fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.font_size = parent.font_size;
     child.font_family = parent.font_family.clone();
@@ -284,6 +284,48 @@ fn value_to_color(value: &Value) -> Option<Color> {
     match value {
         Value::Color(s) | Value::Str(s) => Color::from_str(s),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::arena::NodeId;
+    use crate::lexer::Lexer;
+    use crate::parser::{self, id, Parser};
+
+    fn parse_doc(input: &str) -> Document {
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        let doc = parser.parse().expect("parse");
+        let doc = parser::resolver::resolve(doc);
+        id::assign_ids(doc)
+    }
+
+    fn first_heading<'a>(arena: &'a DocumentArena, id: NodeId) -> Option<&'a StyledBox> {
+        let node = arena.get(id);
+        if matches!(node.kind, BoxKind::Heading(_)) {
+            return Some(node);
+        }
+        if let BoxContent::Children(children) = &node.content {
+            for &cid in children {
+                if let Some(h) = first_heading(arena, cid) {
+                    return Some(h);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn h1_nested_in_page_keeps_kind_font_not_parent_body() {
+        let doc = parse_doc("PAGE(H1(Title))");
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let h1 = first_heading(&arena, root).expect("H1");
+        assert!((h1.styles.font_size - 14.0).abs() < f32::EPSILON);
+        assert_eq!(h1.styles.font_weight, FontWeight::Bold);
     }
 }
 
