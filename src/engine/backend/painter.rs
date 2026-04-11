@@ -56,27 +56,42 @@ pub struct BackendCapabilities {
     pub line: bool,
 }
 
-pub fn capability_matrix() -> [(&'static str, BackendCapabilities); 2] {
-    [
-        (
-            "pdf",
-            BackendCapabilities {
-                text: true,
-                mixed_inline: true,
-                rect: true,
-                line: true,
-            },
-        ),
-        (
-            "svg",
-            BackendCapabilities {
-                text: true,
-                mixed_inline: true,
-                rect: true,
-                line: true,
-            },
-        ),
-    ]
+const PDF_CAP: BackendCapabilities = BackendCapabilities {
+    text: true,
+    mixed_inline: true,
+    rect: true,
+    line: true,
+};
+
+const SVG_CAP: BackendCapabilities = BackendCapabilities {
+    text: true,
+    mixed_inline: true,
+    rect: true,
+    line: true,
+};
+
+#[cfg(feature = "wgpu-preview")]
+const WGPU_CAP: BackendCapabilities = BackendCapabilities {
+    text: true,
+    mixed_inline: true,
+    rect: true,
+    line: true,
+};
+
+/// Сводка возможностей экспортных backend-ов (PDF, SVG, опционально WGPU preview).
+pub fn capability_matrix() -> &'static [(&'static str, BackendCapabilities)] {
+    #[cfg(feature = "wgpu-preview")]
+    {
+        &[
+            ("pdf", PDF_CAP),
+            ("svg", SVG_CAP),
+            ("wgpu", WGPU_CAP),
+        ]
+    }
+    #[cfg(not(feature = "wgpu-preview"))]
+    {
+        &[("pdf", PDF_CAP), ("svg", SVG_CAP)]
+    }
 }
 
 pub fn from_page_tree(page_tree: &PageTree) -> PaintDocument {

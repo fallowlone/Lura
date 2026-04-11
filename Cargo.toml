@@ -5,7 +5,13 @@ edition = "2024"
 
 [features]
 default = []
-wgpu-preview = []
+wgpu-preview = [
+  "dep:wgpu",
+  "dep:pollster",
+  "dep:image",
+  "dep:glyphon",
+  "dep:bytemuck",
+]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -17,6 +23,12 @@ textwrap = "0.16.1"
 ttf-parser = "0.24"
 unicode-linebreak = "0.1.5"
 rustybuzz = "0.20.1"
+
+wgpu = { version = "28", optional = true, default-features = true, features = ["wgsl"] }
+pollster = { version = "0.4", optional = true }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+glyphon = { version = "0.10", optional = true }
+bytemuck = { version = "1.14", optional = true, features = ["derive"] }
 
 [lib]
 name = "folio"

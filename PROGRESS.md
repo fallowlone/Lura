@@ -64,6 +64,7 @@ PAGE(
 
 - [x] AST → JSON
 - [x] AST → plain text
+- [x] AST → plain text: `CELL` с `Content::Children` рендерит через `render_children` (как HTML), а не только `extract_text`
 - [x] AST → HTML
 - [x] Engine v2: StyledTree -> LayoutTree -> PageTree -> PDF (`pdf-writer`)
 - [x] Удалён legacy PDF путь на `printpdf`
