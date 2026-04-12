@@ -35,7 +35,11 @@ fn main() {
             }
         }
 
-        Commands::Render { file, output } => {
+        Commands::Render {
+            file,
+            output,
+            preview_sidecar,
+        } => {
             let doc = load_document(&file);
 
             let pdf_bytes = engine::render_pdf(&doc);
@@ -44,9 +48,17 @@ fn main() {
                 process::exit(1);
             });
             println!("Rendered (Engine v2) → {}", output.display());
+            if preview_sidecar {
+                write_preview_sidecar(&file, &pdf_bytes);
+            }
         }
 
-        Commands::Convert { file, format, output } => {
+        Commands::Convert {
+            file,
+            format,
+            output,
+            preview_sidecar,
+        } => {
             let doc = load_document(&file);
 
             if format == "pdf" {
@@ -70,6 +82,9 @@ fn main() {
                         });
                         println!("PDF exported successfully to {def_path}");
                     }
+                }
+                if preview_sidecar {
+                    write_preview_sidecar(&file, &pdf_data);
                 }
                 return;
             }
@@ -170,6 +185,20 @@ fn main() {
                 let _ = fs::remove_file(&temp_pdf);
             }
         }
+    }
+}
+
+fn preview_sidecar_path(source: &std::path::Path) -> std::path::PathBuf {
+    let parent = source.parent().unwrap_or(std::path::Path::new("."));
+    let name = source.file_name().unwrap_or_default();
+    parent.join(format!("{}.preview.pdf", name.to_string_lossy()))
+}
+
+fn write_preview_sidecar(source: &std::path::Path, pdf_bytes: &[u8]) {
+    let path = preview_sidecar_path(source);
+    match fs::write(&path, pdf_bytes) {
+        Ok(()) => eprintln!("Wrote preview sidecar {}", path.display()),
+        Err(e) => eprintln!("warning: could not write preview sidecar {}: {e}", path.display()),
     }
 }
 

@@ -34,6 +34,8 @@ cp quicklook/ExtensionInfo.plist "$EXT_DIR/Contents/Info.plist"
 echo "==> Compiling Host App (SwiftUI)..."
 HOST_SWIFT=(
     quicklook/Shared/LuraPdfFFI.swift
+    quicklook/Shared/LuraPreviewDiskCache.swift
+    quicklook/Shared/LuraPreviewSidecar.swift
     quicklook/HostApp/LuraDebugLog.swift
     quicklook/HostApp/LuraTemplates.swift
     quicklook/HostApp/RecentFilesStore.swift
@@ -56,7 +58,7 @@ swiftc "${HOST_SWIFT[@]}" \
     -framework PDFKit
 
 echo "==> Compiling Quick Look Extension (Swift)..."
-swiftc quicklook/Shared/LuraPdfFFI.swift quicklook/Extension/PreviewViewController.swift \
+swiftc quicklook/Shared/LuraPdfFFI.swift quicklook/Shared/LuraPreviewDiskCache.swift quicklook/Shared/LuraPreviewSidecar.swift quicklook/Extension/PreviewViewController.swift \
     -parse-as-library \
     -module-name "$EXT_NAME" \
     -o "$EXT_DIR/Contents/MacOS/$EXT_NAME" \
@@ -76,6 +78,10 @@ cat << 'EOF' > "$BUILD_DIR/Entitlements.plist"
     <true/>
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.fallowlone.lura</string>
+    </array>
 </dict>
 </plist>
 EOF

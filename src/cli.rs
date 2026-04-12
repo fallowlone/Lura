@@ -27,6 +27,9 @@ pub enum Commands {
         /// Write output to file instead of stdout
         #[arg(long)]
         output: Option<PathBuf>,
+        /// For `pdf`: also write `<source>.preview.pdf` next to the source (faster Quick Look cold open)
+        #[arg(long, default_value_t = false)]
+        preview_sidecar: bool,
     },
     /// Render a .fol file to PDF using Engine v2 (taffy layout, unicode line-break)
     Render {
@@ -34,6 +37,9 @@ pub enum Commands {
         /// Output PDF file (default: output.pdf)
         #[arg(long, default_value = "output.pdf")]
         output: PathBuf,
+        /// Also write `<source>.preview.pdf` next to the source (faster Quick Look cold open)
+        #[arg(long, default_value_t = false)]
+        preview_sidecar: bool,
     },
     /// List available printers from the system spooler
     Printers,

@@ -44,9 +44,33 @@ class PreviewViewController: NSViewController, QLPreviewingController {
     private func showPDF(data: Data) {
         errorLabel.isHidden = true
         pdfView.document = PDFDocument(data: data)
+        DispatchQueue.main.async { [weak self] in
+            self?.pdfView.goToFirstPage(nil)
+        }
     }
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
+        if let sidecar = LuraPreviewSidecar.pdfIfFresh(documentURL: url) {
+            showPDF(data: sidecar)
+            handler(nil)
+            return
+        }
+
+        let fileData: Data
+        do {
+            fileData = try Data(contentsOf: url)
+        } catch {
+            showError("File read error: \(error.localizedDescription)")
+            handler(nil)
+            return
+        }
+
+        if let cached = LuraPreviewDiskCache.pdf(forDocumentData: fileData) {
+            showPDF(data: cached)
+            handler(nil)
+            return
+        }
+
         let bundle = Bundle(for: type(of: self))
         guard let frameworksPath = bundle.privateFrameworksPath else {
             showError("Missing Frameworks path (expected liblura.dylib in the extension bundle).")
@@ -71,30 +95,25 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             return
         }
 
-        do {
-            let fileData = try Data(contentsOf: url)
-            guard let contentStr = String(data: fileData, encoding: .utf8) else {
-                showError("The file is not valid UTF-8 text.")
-                handler(nil)
-                return
-            }
-
-            let out = LuraPdfFFI.invokeRender(
-                source: contentStr,
-                symRender: symRender,
-                symFree: symFree
-            )
-            if let err = out.errorMessage {
-                showError(err)
-            } else if let data = out.pdfData {
-                showPDF(data: data)
-            } else {
-                showError("No PDF data returned.")
-            }
+        guard let contentStr = String(data: fileData, encoding: .utf8) else {
+            showError("The file is not valid UTF-8 text.")
             handler(nil)
-        } catch {
-            showError("File read error: \(error.localizedDescription)")
-            handler(nil)
+            return
         }
+
+        let out = LuraPdfFFI.invokeRender(
+            source: contentStr,
+            symRender: symRender,
+            symFree: symFree
+        )
+        if let err = out.errorMessage {
+            showError(err)
+        } else if let data = out.pdfData {
+            LuraPreviewDiskCache.store(data, forDocumentData: fileData)
+            showPDF(data: data)
+        } else {
+            showError("No PDF data returned.")
+        }
+        handler(nil)
     }
 }
