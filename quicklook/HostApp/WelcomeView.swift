@@ -78,7 +78,7 @@ struct WelcomeView: View {
 
             Spacer(minLength: 24)
 
-            Text("Source editor with live HTML preview. Full visual editing is planned for a later release.")
+            Text("Source editor with live PDF preview. Full visual editing is planned for a later release.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
