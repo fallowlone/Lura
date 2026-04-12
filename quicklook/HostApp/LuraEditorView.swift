@@ -169,12 +169,18 @@ struct LuraEditorView: View {
     private func applyPreviewOutput(_ out: LuraPdfFFI.Output) {
         previewPDFData = out.pdfData
         previewError = out.errorMessage
+        if let pdf = out.pdfData, let utf8 = document.text.data(using: .utf8) {
+            LuraPreviewDiskCache.store(pdf, forDocumentData: utf8)
+        }
     }
 
     private func saveDocument() {
         do {
             try document.save()
             appModel.editorIsDirty = false
+            if let pdf = previewPDFData {
+                LuraPreviewSidecar.write(pdf: pdf, documentURL: document.url)
+            }
         } catch {
             presentAlert(title: "Save failed", message: error.localizedDescription)
         }
@@ -222,6 +228,9 @@ struct LuraEditorView: View {
         case .alertFirstButtonReturn:
             do {
                 try document.save()
+                if let pdf = previewPDFData {
+                    LuraPreviewSidecar.write(pdf: pdf, documentURL: document.url)
+                }
                 onClose()
             } catch {
                 presentAlert(title: "Save failed", message: error.localizedDescription)

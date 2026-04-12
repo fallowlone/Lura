@@ -17,6 +17,9 @@ struct PDFPreviewRepresentable: NSViewRepresentable {
     func updateNSView(_ pdfView: PDFView, context: Context) {
         if let data = pdfData, !data.isEmpty, let doc = PDFDocument(data: data) {
             pdfView.document = doc
+            DispatchQueue.main.async {
+                pdfView.goToFirstPage(nil)
+            }
         } else {
             pdfView.document = nil
         }

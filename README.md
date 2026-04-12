@@ -53,6 +53,23 @@ Early development. The pipeline works for experimentation; the **written specifi
 - [x] CLI: `parse`, `validate`, `convert` (json | text | pdf | svg), `render`, `printers`, `print` (CUPS on Unix)
 - [x] macOS Lura app + Quick Look: native PDF preview (`PDFKit`) via FFI `lura_render_pdf` / `lura_free_pdf_result`
 
+### Preview: why `.fol` can feel slower than `.pdf` in Quick Look
+
+Opening a **`.fol`** file runs the full Lura pipeline (parse → resolver → layout → paginate → PDF bytes) in the preview path, then **PDFKit** displays that PDF. Opening an existing **`.pdf`** only decodes and draws bytes that were already rendered when the file was exported.
+
+Large examples such as [`examples/showcase-large.fol`](examples/showcase-large.fol) intentionally stress the pipeline (multiple pages, tables, grids, long text), so Quick Look for that source file is expected to take longer than opening the pre-built [`examples/showcase-large.pdf`](examples/showcase-large.pdf).
+
+The engine keeps a small **in-process** render cache in [`src/engine/mod.rs`](src/engine/mod.rs) (helps if the same document is rendered again without unloading the library). Quick Look often uses a **cold** process, so the first preview is usually a full run. Build with **`cargo build --release`** (as in [`install-preview.sh`](install-preview.sh)) so the bundled `liblura.dylib` is optimized; debug builds add overhead but do not change the fact that FOL preview does more work than opening a static PDF.
+
+Faster paths (see [`docs/PREVIEW_FIRST_OPEN.md`](docs/PREVIEW_FIRST_OPEN.md)):
+
+1. **Sidecar** — `yourdoc.fol.preview.pdf` next to the source. Quick Look prefers it when it is at least as new as the source ([`quicklook/Shared/LuraPreviewSidecar.swift`](quicklook/Shared/LuraPreviewSidecar.swift)). Create it with `lura convert … --format pdf --preview-sidecar` or `lura render … --preview-sidecar`, or **Save** in the Lura app (writes sidecar if preview succeeded).
+2. **Shared disk cache** — SHA256-keyed PDF under an **App Group** (`group.com.fallowlone.lura`) so the editor and the QL extension share the same folder ([`quicklook/Shared/LuraPreviewDiskCache.swift`](quicklook/Shared/LuraPreviewDiskCache.swift)). The app **prewarms** the cache after each successful debounced preview, so Finder can open cold-fast after the document was previewed in Lura.
+
+If neither sidecar nor cache applies, preview still runs the full pipeline once.
+
+Relevant code: [`quicklook/Extension/PreviewViewController.swift`](quicklook/Extension/PreviewViewController.swift), [`src/lib.rs`](src/lib.rs) (`lura_render_pdf`), [`src/engine/mod.rs`](src/engine/mod.rs) (`render`).
+
 ### Not done / partial
 
 - [ ] Published format specification (normative doc)
@@ -77,7 +94,8 @@ cargo run -- --help
 ### Example
 
 ```sh
-cargo run -- convert --file examples/sample.fol --format pdf --output out.pdf
+cargo run -- convert examples/sample.fol --format pdf --output out.pdf
+cargo run -- convert examples/sample.fol --format pdf --output out.pdf --preview-sidecar
 ```
 
 ## License
