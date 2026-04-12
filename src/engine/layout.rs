@@ -350,10 +350,6 @@ fn measure_text_leaf(
 ) -> Size<f32> {
     let bold = styles.font_weight == FontWeight::Bold;
 
-    if let (Some(w), Some(h)) = (known_dimensions.width, known_dimensions.height) {
-        return Size { width: w, height: h };
-    }
-
     if let Some(w) = known_dimensions.width {
         let lines = break_text(
             text,
@@ -364,9 +360,7 @@ fn measure_text_leaf(
             styles.letter_spacing,
             styles.word_spacing,
         );
-        let h = known_dimensions
-            .height
-            .unwrap_or_else(|| text_block_height(&lines));
+        let h = text_block_height(&lines);
         return Size { width: w, height: h };
     }
 
@@ -473,22 +467,16 @@ fn measure_inline_leaf(
 ) -> Size<f32> {
     let justify = styles.justify || styles.text_align == TextAlign::Justify;
 
-    if let (Some(w), Some(h)) = (known_dimensions.width, known_dimensions.height) {
-        return Size { width: w, height: h };
-    }
-
     if let Some(w) = known_dimensions.width {
-        let h = known_dimensions.height.unwrap_or_else(|| {
-            inline_runs_block_height(
-                runs,
-                w,
-                styles.font_size,
-                styles.line_height,
-                styles.letter_spacing,
-                styles.word_spacing,
-                justify,
-            )
-        });
+        let h = inline_runs_block_height(
+            runs,
+            w,
+            styles.font_size,
+            styles.line_height,
+            styles.letter_spacing,
+            styles.word_spacing,
+            justify,
+        );
         return Size { width: w, height: h };
     }
 
