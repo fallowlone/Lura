@@ -217,8 +217,12 @@ fn shape_text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> Option<f32>
     if upem <= 0.0 {
         return None;
     }
+    let infos = glyph_buffer.glyph_infos();
+    if infos.is_empty() {
+        return None;
+    }
     let mut width_units = 0.0f32;
-    for info in glyph_buffer.glyph_infos() {
+    for info in infos {
         let gid = ttf_parser::GlyphId(info.glyph_id as u16);
         if let Some(adv) = ttf_face.glyph_hor_advance(gid) {
             width_units += adv as f32;
@@ -226,7 +230,13 @@ fn shape_text_width_pt(text: &str, font_size_pt: f32, bold: bool) -> Option<f32>
             width_units += upem * 0.55;
         }
     }
-    Some(width_units / upem * font_size_pt)
+    let w = width_units / upem * font_size_pt;
+    // HarfBuzz can yield zero total advance for some runs (e.g. lone spaces on certain faces).
+    // Fall back to per-glyph metrics so inline fragments keep real spacing.
+    if w < 1e-3 {
+        return None;
+    }
+    Some(w)
 }
 
 // --- Text lines ---

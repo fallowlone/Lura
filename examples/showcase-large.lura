@@ -10,7 +10,7 @@ STYLES({
 PAGE(
   H1({color: #brand} Lura Capability Showcase 2026)
   P(This document stress-tests rendering with *mixed inline styling*, **bold accents**, `inline code`, and [links](https://lura.local/spec).)
-  P({color: #muted} The goal is to produce a large realistic document and compare .fol vs exported PDF sizes.)
+  P({color: #muted} The goal is to produce a large realistic document and compare .lura source vs exported PDF sizes.)
   HR()
 
   H2(1. Executive Summary)

@@ -195,7 +195,9 @@ fn build_content_stream(
             }
 
             PainterCommand::Text { content: text, x, y, font_size, bold, color, .. } => {
-                if text.trim().is_empty() {
+                // Must emit space-only runs: layout positions words using explicit x, but skipping
+                // whitespace here removed all space glyphs and made adjacent words touch.
+                if text.is_empty() {
                     continue;
                 }
 

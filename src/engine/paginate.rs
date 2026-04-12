@@ -563,6 +563,54 @@ impl<'a> Paginator<'a> {
 
     // ─── TABLE ────────────────────────────────────────────────────────────────
 
+    /// Text + child block height inside a table cell, excluding the cell's own padding.
+    /// Used to vertically center shorter cells within `row_height`.
+    fn cell_body_height_excluding_padding(&self, cell_idx: LayoutNodeIdx) -> f32 {
+        let cell = &self.layout.nodes[cell_idx];
+        let cell_styles = self.styled.get(cell.arena_id).styles.clone();
+        let bold = cell_styles.font_weight == FontWeight::Bold;
+        match &cell.content {
+            LayoutContent::Text(text) => {
+                let w = text_container_width_pt(
+                    cell.width,
+                    cell_styles.padding.left,
+                    cell_styles.padding.right,
+                );
+                let lines = break_text(
+                    text,
+                    w,
+                    cell_styles.font_size,
+                    cell_styles.line_height,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                text_block_height(&lines)
+            }
+            LayoutContent::Inline(runs) => {
+                let w = text_container_width_pt(
+                    cell.width,
+                    cell_styles.padding.left,
+                    cell_styles.padding.right,
+                );
+                inline_runs_block_height(
+                    runs,
+                    w,
+                    cell_styles.font_size,
+                    cell_styles.line_height,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                    cell_styles.justify,
+                )
+            }
+            LayoutContent::Children(children) => children
+                .iter()
+                .map(|&child_idx| self.estimate_height(child_idx))
+                .sum(),
+            LayoutContent::Empty => 0.0,
+        }
+    }
+
     fn place_table(&mut self, table_idx: LayoutNodeIdx, row_indices: Vec<LayoutNodeIdx>) -> f32 {
         let table_node = self.layout.nodes[table_idx].clone();
         let table_start_y = self.cursor_y;
@@ -685,7 +733,13 @@ impl<'a> Paginator<'a> {
                 let cell_styles = self.styled.get(cell.arena_id).styles.clone();
                 let bold = cell_styles.font_weight == FontWeight::Bold;
                 let padding_top = cell_styles.padding.top * MM_TO_PT;
+                let padding_bottom = cell_styles.padding.bottom * MM_TO_PT;
                 let padding_left = cell_styles.padding.left * MM_TO_PT;
+
+                let inner_h = (row_height - padding_top - padding_bottom).max(0.0);
+                let body_h = self.cell_body_height_excluding_padding(cell_idx);
+                let y_center_slack = ((inner_h - body_h) / 2.0).max(0.0);
+                let content_top = row_start_y + padding_top + y_center_slack;
 
                 // Per-cell background
                 if let Some(cell_bg) = cell_styles.background {
@@ -717,8 +771,7 @@ impl<'a> Paginator<'a> {
                             cell_styles.word_spacing,
                         );
                         for (i, line) in lines.iter().enumerate() {
-                            let y = row_start_y
-                                + padding_top
+                            let y = content_top
                                 + cell_styles.font_size
                                 + i as f32 * line.line_height_pt;
                             if y > CONTENT_BOTTOM {
@@ -752,8 +805,7 @@ impl<'a> Paginator<'a> {
                             cell_styles.justify,
                         );
                         for (i, line) in lines.iter().enumerate() {
-                            let baseline_y = row_start_y
-                                + padding_top
+                            let baseline_y = content_top
                                 + cell_styles.font_size
                                 + i as f32 * line.line_height_pt;
                             if baseline_y > CONTENT_BOTTOM {
@@ -787,7 +839,7 @@ impl<'a> Paginator<'a> {
                     }
                     LayoutContent::Children(children) => {
                         let cursor_before_cell = self.cursor_y;
-                        self.cursor_y = row_start_y + padding_top;
+                        self.cursor_y = content_top;
                         for &child_idx in children {
                             self.place_node(child_idx);
                         }
@@ -830,43 +882,58 @@ impl<'a> Paginator<'a> {
     fn estimate_height(&self, node_idx: LayoutNodeIdx) -> f32 {
         let node = &self.layout.nodes[node_idx];
         let styles = self.styled.get(node.arena_id).styles.clone();
-        if matches!(node.kind, BoxKind::Figure) && matches!(node.content, LayoutContent::Empty) {
-            return Self::figure_placeholder_height_pt(&styles);
-        }
-        let bold = styles.font_weight == FontWeight::Bold;
-        match &node.content {
-            LayoutContent::Text(t) => {
-                let w = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
-                let lines = break_text(
-                    t,
-                    w,
-                    styles.font_size,
-                    styles.line_height,
-                    bold,
-                    styles.letter_spacing,
-                    styles.word_spacing,
-                );
-                text_block_height(&lines)
+        let margin_top = styles.margin.top * MM_TO_PT;
+        let margin_bottom = styles.margin.bottom * MM_TO_PT;
+
+        let inner = if matches!(node.kind, BoxKind::Figure) && matches!(node.content, LayoutContent::Empty)
+        {
+            Self::figure_placeholder_height_pt(&styles)
+        } else {
+            let bold = styles.font_weight == FontWeight::Bold;
+            match &node.content {
+                LayoutContent::Text(t) => {
+                    let w = text_container_width_pt(
+                        node.width,
+                        styles.padding.left,
+                        styles.padding.right,
+                    );
+                    let lines = break_text(
+                        t,
+                        w,
+                        styles.font_size,
+                        styles.line_height,
+                        bold,
+                        styles.letter_spacing,
+                        styles.word_spacing,
+                    );
+                    text_block_height(&lines)
+                }
+                LayoutContent::Inline(runs) => {
+                    let w = text_container_width_pt(
+                        node.width,
+                        styles.padding.left,
+                        styles.padding.right,
+                    );
+                    let justify =
+                        styles.justify || styles.text_align == super::styles::TextAlign::Justify;
+                    inline_runs_block_height(
+                        runs,
+                        w,
+                        styles.font_size,
+                        styles.line_height,
+                        styles.letter_spacing,
+                        styles.word_spacing,
+                        justify,
+                    )
+                }
+                LayoutContent::Children(children) => {
+                    children.iter().map(|&ci| self.estimate_height(ci)).sum()
+                }
+                LayoutContent::Empty => 0.0,
             }
-            LayoutContent::Inline(runs) => {
-                let w = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
-                let justify =
-                    styles.justify || styles.text_align == super::styles::TextAlign::Justify;
-                inline_runs_block_height(
-                    runs,
-                    w,
-                    styles.font_size,
-                    styles.line_height,
-                    styles.letter_spacing,
-                    styles.word_spacing,
-                    justify,
-                )
-            }
-            LayoutContent::Children(children) => {
-                children.iter().map(|&ci| self.estimate_height(ci)).sum()
-            }
-            LayoutContent::Empty => 0.0,
-        }
+        };
+
+        margin_top + inner + margin_bottom
     }
 }
 
