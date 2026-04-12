@@ -1,6 +1,7 @@
-//! Parse `columns` / `grid-template-columns` for GRID: CSS subset (fr, px, mm, pt, auto).
-
-use std::fmt::Write;
+//! Parse GRID `columns` / `grid-columns` track lists for the layout engine.
+//!
+//! Syntax is grid-like (`fr`, `px`, `mm`, `pt`, `auto`) and feeds **taffy** via
+//! [`tracks_to_taffy_components`], not a browser CSSOM.
 
 use super::layout::MM_TO_PT;
 use crate::parser::ast::Value;
@@ -10,7 +11,7 @@ use taffy::style::GridTemplateComponent;
 /// One grid column track (after resolve to absolute units for the engine, except `fr`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridColumnTrack {
-    /// `fr` fraction (CSS semantics).
+    /// `fr` flex fraction (resolved by taffy alongside other tracks).
     Fr(f32),
     /// Length in pt (for taffy `length()`).
     LengthPt(f32),
@@ -30,7 +31,7 @@ impl GridTrackParseError {
     }
 }
 
-/// CSS px at 96 DPI: 1px = 72/96 pt.
+/// Author `px` in track tokens: treat as 96 px per inch → pt (72 pt per inch).
 const PX_TO_PT: f32 = 72.0 / 96.0;
 
 /// Parse a string like `1fr 2fr`, `10mm 1fr`, `auto 1fr`.
@@ -155,35 +156,6 @@ pub fn grid_column_count(tracks: &[GridColumnTrack]) -> usize {
         1
     } else {
         tracks.len()
-    }
-}
-
-/// CSS for `grid-template-columns` (matches parser output).
-pub fn tracks_to_css(tracks: &[GridColumnTrack]) -> String {
-    let mut s = String::new();
-    for (i, tr) in tracks.iter().enumerate() {
-        if i > 0 {
-            s.push(' ');
-        }
-        match *tr {
-            GridColumnTrack::Fr(v) => {
-                let _ = write!(&mut s, "{}", fmt_fr(v));
-                s.push_str("fr");
-            }
-            GridColumnTrack::LengthPt(pt) => {
-                let _ = write!(&mut s, "{}pt", fmt_fr(pt));
-            }
-            GridColumnTrack::Auto => s.push_str("auto"),
-        }
-    }
-    s
-}
-
-fn fmt_fr(v: f32) -> String {
-    if (v - v.round()).abs() < 1e-4 {
-        format!("{}", v.round() as i64)
-    } else {
-        format!("{v:.2}")
     }
 }
 

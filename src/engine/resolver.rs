@@ -78,7 +78,7 @@ fn convert_block(
     arena.alloc(node)
 }
 
-/// Copies inheritable CSS properties from parent to child (`child` is usually
+/// Copies inheritable layout/text fields from parent to child (`child` is usually
 /// `ResolvedStyles::default()` before `apply_kind_defaults`).
 /// Only: font-*, color, line-height, text-align.
 fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
@@ -126,6 +126,16 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
             }
             "background" | "background-color" => {
                 styles.background = value_to_color(value);
+            }
+            "opacity" => {
+                if let Some(v) = value_to_f32(value) {
+                    styles.opacity = v.clamp(0.0, 1.0);
+                }
+            }
+            "overflow" => {
+                if let Value::Str(s) = value {
+                    styles.overflow_clip = matches!(s.as_str(), "clip" | "hidden");
+                }
             }
             "margin" => {
                 if let Some(v) = value_to_f32(value) {
@@ -316,6 +326,20 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn opacity_and_overflow_clip_resolve() {
+        let doc = parse_doc(r#"PAGE(P({ opacity: 0.5, overflow: clip } Hi))"#);
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let page = arena.get(root);
+        let p = match &page.content {
+            BoxContent::Children(ids) => arena.get(ids[0]),
+            _ => panic!("expected page with child"),
+        };
+        assert!((p.styles.opacity - 0.5).abs() < 1e-4);
+        assert!(p.styles.overflow_clip);
     }
 
     #[test]

@@ -27,24 +27,51 @@ impl PainterBackend for SvgBackend {
         let total_gap = page_gap * (doc.pages.len().saturating_sub(1) as f32);
         let canvas_height = total_height + total_gap;
 
-        out.push_str(&format!(
+        let svg_open = format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="{:.2}" height="{:.2}" viewBox="0 0 {:.2} {:.2}">"#,
             width, canvas_height, width, canvas_height
-        ));
-        out.push('\n');
+        );
+
+        let mut body = String::new();
+        let mut defs = String::new();
+        let mut clip_seq = 0u32;
 
         let mut y_offset = 0.0f32;
         for page in &doc.pages {
-            out.push_str(&format!(r#"<g transform="translate(0,{:.2})">"#, y_offset));
-            out.push('\n');
-            out.push_str(&format!(
+            body.push_str(&format!(r#"<g transform="translate(0,{:.2})">"#, y_offset));
+            body.push('\n');
+            body.push_str(&format!(
                 r##"<rect x="0" y="0" width="{:.2}" height="{:.2}" fill="white" stroke="#e5e7eb" stroke-width="1"/>"##,
                 page.width, page.height
             ));
-            out.push('\n');
+            body.push('\n');
 
             for cmd in &page.commands {
                 match cmd {
+                    PainterCommand::PushOpacity { alpha } => {
+                        body.push_str(&format!(
+                            r#"<g opacity="{:.4}">"#,
+                            alpha.clamp(0.0, 1.0)
+                        ));
+                        body.push('\n');
+                    }
+                    PainterCommand::PopOpacity => {
+                        body.push_str("</g>\n");
+                    }
+                    PainterCommand::PushClipRect { x, y, w, h } => {
+                        let id = clip_seq;
+                        clip_seq += 1;
+                        defs.push_str(&format!(
+                            r#"<clipPath id="lc{}"><rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}"/></clipPath>"#,
+                            id, x, y, w, h
+                        ));
+                        defs.push('\n');
+                        body.push_str(&format!(r#"<g clip-path="url(#lc{})">"#, id));
+                        body.push('\n');
+                    }
+                    PainterCommand::PopClip => {
+                        body.push_str("</g>\n");
+                    }
                     PainterCommand::Rect { x, y, w, h, fill, stroke, stroke_width } => {
                         let fill_attr = fill
                             .map(color_to_svg)
@@ -52,18 +79,18 @@ impl PainterBackend for SvgBackend {
                         let stroke_attr = stroke
                             .map(color_to_svg)
                             .unwrap_or_else(|| "none".to_string());
-                        out.push_str(&format!(
+                        body.push_str(&format!(
                             r#"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}" stroke="{}" stroke-width="{:.2}"/>"#,
                             x, y, w, h, fill_attr, stroke_attr, stroke_width
                         ));
-                        out.push('\n');
+                        body.push('\n');
                     }
                     PainterCommand::Line { x1, y1, x2, y2, color, width } => {
-                        out.push_str(&format!(
+                        body.push_str(&format!(
                             r#"<line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" stroke="{}" stroke-width="{:.2}" />"#,
                             x1, y1, x2, y2, color_to_svg(*color), width
                         ));
-                        out.push('\n');
+                        body.push('\n');
                     }
                     PainterCommand::Text { content, x, y, font_size, font_family, bold, italic, color } => {
                         let mut attrs = Vec::new();
@@ -77,22 +104,30 @@ impl PainterBackend for SvgBackend {
                         }
                         attrs.push(format!(r#"fill="{}""#, color_to_svg(*color)));
                         attrs.push(r#"xml:space="preserve""#.to_string());
-                        out.push_str(&format!(
+                        body.push_str(&format!(
                             r#"<text x="{:.2}" y="{:.2}" {}>{}</text>"#,
                             x,
                             y,
                             attrs.join(" "),
                             escape_xml(content)
                         ));
-                        out.push('\n');
+                        body.push('\n');
                     }
                 }
             }
 
-            out.push_str("</g>\n");
+            body.push_str("</g>\n");
             y_offset += page.height + page_gap;
         }
 
+        out.push_str(&svg_open);
+        out.push('\n');
+        if !defs.is_empty() {
+            out.push_str("<defs>\n");
+            out.push_str(&defs);
+            out.push_str("</defs>\n");
+        }
+        out.push_str(&body);
         out.push_str("</svg>\n");
         out.into_bytes()
     }

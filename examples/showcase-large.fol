@@ -57,7 +57,7 @@ PAGE(
   P({color: #muted, font-size: 8} Grid track list syntax: proportional columns via fr units.)
   GRID({columns: "1fr 2fr", gap: 3}
     P({background: #bgSoft, padding: 2} One third width — track list `1fr 2fr`.)
-    P({background: #bgSoft, padding: 2} Two thirds width — validates parser, taffy, PDF/HTML parity for string columns.)
+    P({background: #bgSoft, padding: 2} Two thirds width — validates parser, taffy, PDF/SVG parity for string columns.)
   )
 )
 

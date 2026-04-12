@@ -4,9 +4,11 @@
 /// Uses the `pdf-writer` crate: low-level but fast.
 ///
 /// Supported commands:
-/// - `DrawCommand::Text`  → PDF BT ... ET (built-in fonts: Helvetica / Helvetica-Bold)
-/// - `DrawCommand::Rect`  → PDF re + f/S
-/// - `DrawCommand::Line`  → PDF m + l + S
+/// - `Text`  → PDF BT ... ET (built-in fonts: Helvetica / Helvetica-Bold)
+/// - `Rect`  → PDF re + f/S
+/// - `Line`  → PDF m + l + S
+/// - `PushOpacity` / `PopOpacity` → `q` / `Q` + `ExtGState` (`ca` / `CA`)
+/// - `PushClipRect` / `PopClip` → `q` / `Q` + `W n` clip path
 ///
 /// Coordinate systems:
 /// pdf-writer: bottom-left = (0,0), Y increases upward.
@@ -26,73 +28,145 @@ pub struct PdfBackend;
 
 impl PainterBackend for PdfBackend {
     fn render_document(&self, doc: &PaintDocument) -> Vec<u8> {
-    let mut pdf = Pdf::new();
-    let mut alloc = RefAlloc::new(1);
+        let mut pdf = Pdf::new();
+        let mut alloc = RefAlloc::new(1);
 
-    let catalog_id      = alloc.next();
-    let pages_id        = alloc.next();
-    let font_regular_id = alloc.next();
-    let font_bold_id    = alloc.next();
+        let catalog_id = alloc.next();
+        let pages_id = alloc.next();
+        let font_regular_id = alloc.next();
+        let font_bold_id = alloc.next();
 
-    let mut page_ids:    Vec<Ref> = Vec::new();
-    let mut content_ids: Vec<Ref> = Vec::new();
+        let mut page_ids: Vec<Ref> = Vec::new();
+        let mut content_ids: Vec<Ref> = Vec::new();
 
-    for _ in &doc.pages {
-        page_ids.push(alloc.next());
-        content_ids.push(alloc.next());
-    }
-
-    // ─── Catalog ──────────────────────────────────────────────────────────────
-    pdf.catalog(catalog_id).pages(pages_id);
-
-    // ─── Page tree ────────────────────────────────────────────────────────────
-    let page_width  = doc.pages.first().map(|p| p.width).unwrap_or(595.28);
-    let page_height = doc.pages.first().map(|p| p.height).unwrap_or(841.89);
-    {
-        let mut pages = pdf.pages(pages_id);
-        pages.media_box(Rect::new(0.0, 0.0, page_width, page_height));
-        pages.kids(page_ids.iter().copied());
-        pages.count(page_ids.len() as i32);
-    }
-
-    // --- Built-in Type1 fonts ---
-    // WinAnsiEncoding is required: encode_latin1 writes bytes 0x80–0x9F (cp1252).
-    // Without an explicit Encoding, viewers use StandardEncoding where 0x91–0x97
-    // are undefined — smart quotes, dashes, and bullets render as empty glyphs.
-    pdf.type1_font(font_regular_id).base_font(Name(b"Helvetica")).encoding_predefined(Name(b"WinAnsiEncoding"));
-    pdf.type1_font(font_bold_id).base_font(Name(b"Helvetica-Bold")).encoding_predefined(Name(b"WinAnsiEncoding"));
-
-    // --- Pages ---
-    for (i, page) in doc.pages.iter().enumerate() {
-        let page_id    = page_ids[i];
-        let content_id = content_ids[i];
-
-        {
-            let mut p = pdf.page(page_id);
-            p.media_box(Rect::new(0.0, 0.0, page.width, page.height));
-            p.parent(pages_id);
-            p.contents(content_id);
-            let mut res = p.resources();
-            let mut fonts = res.fonts();
-            fonts.pair(Name(b"F1"), font_regular_id);
-            fonts.pair(Name(b"F2"), font_bold_id);
+        for _ in &doc.pages {
+            page_ids.push(alloc.next());
+            content_ids.push(alloc.next());
         }
 
-        let buf = build_content_stream(page.height, &page.commands);
-        pdf.stream(content_id, buf.as_slice());
-    }
+        // Per-page opacity → ExtGState objects (refs allocated before page bodies).
+        let mut page_opacity: Vec<(Vec<f32>, Vec<Ref>, Vec<Vec<u8>>)> = Vec::with_capacity(doc.pages.len());
+        for page in &doc.pages {
+            let alphas = collect_unique_opacity_alphas(&page.commands);
+            let mut refs = Vec::with_capacity(alphas.len());
+            let mut names = Vec::with_capacity(alphas.len());
+            for (j, &a) in alphas.iter().enumerate() {
+                let r = alloc.next();
+                pdf.ext_graphics(r)
+                    .non_stroking_alpha(a)
+                    .stroking_alpha(a);
+                refs.push(r);
+                names.push(format!("Lo{j}").into_bytes());
+            }
+            page_opacity.push((alphas, refs, names));
+        }
 
-    pdf.finish()
+        // ─── Catalog ──────────────────────────────────────────────────────────────
+        pdf.catalog(catalog_id).pages(pages_id);
+
+        // ─── Page tree ────────────────────────────────────────────────────────────
+        let page_width = doc.pages.first().map(|p| p.width).unwrap_or(595.28);
+        let page_height = doc.pages.first().map(|p| p.height).unwrap_or(841.89);
+        {
+            let mut pages = pdf.pages(pages_id);
+            pages.media_box(Rect::new(0.0, 0.0, page_width, page_height));
+            pages.kids(page_ids.iter().copied());
+            pages.count(page_ids.len() as i32);
+        }
+
+        // --- Built-in Type1 fonts ---
+        pdf.type1_font(font_regular_id)
+            .base_font(Name(b"Helvetica"))
+            .encoding_predefined(Name(b"WinAnsiEncoding"));
+        pdf.type1_font(font_bold_id)
+            .base_font(Name(b"Helvetica-Bold"))
+            .encoding_predefined(Name(b"WinAnsiEncoding"));
+
+        // --- Pages ---
+        for (i, page) in doc.pages.iter().enumerate() {
+            let page_id = page_ids[i];
+            let content_id = content_ids[i];
+            let (alphas, gs_refs, gs_names) = &page_opacity[i];
+
+            {
+                let mut p = pdf.page(page_id);
+                p.media_box(Rect::new(0.0, 0.0, page.width, page.height));
+                p.parent(pages_id);
+                p.contents(content_id);
+                let mut res = p.resources();
+                {
+                    let mut fonts = res.fonts();
+                    fonts.pair(Name(b"F1"), font_regular_id);
+                    fonts.pair(Name(b"F2"), font_bold_id);
+                }
+                if !alphas.is_empty() {
+                    let mut ext = res.ext_g_states();
+                    for (buf, &r) in gs_names.iter().zip(gs_refs.iter()) {
+                        ext.pair(Name(buf.as_slice()), r);
+                    }
+                }
+            }
+
+            let buf = build_content_stream(page.height, &page.commands, alphas, gs_names);
+            pdf.stream(content_id, buf.as_slice());
+        }
+
+        pdf.finish()
     }
+}
+
+fn collect_unique_opacity_alphas(commands: &[PainterCommand]) -> Vec<f32> {
+    let mut out: Vec<f32> = Vec::new();
+    for cmd in commands {
+        if let PainterCommand::PushOpacity { alpha } = cmd {
+            let a = alpha.clamp(0.0, 1.0);
+            if !out.iter().any(|x| (x - a).abs() < 1e-4) {
+                out.push(a);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    out
+}
+
+fn opacity_gs_index(alphas: &[f32], alpha: f32) -> usize {
+    let a = alpha.clamp(0.0, 1.0);
+    alphas
+        .iter()
+        .position(|x| (x - a).abs() < 1e-4)
+        .expect("PushOpacity alpha must have matching ExtGState")
 }
 
 // ─── Content stream ───────────────────────────────────────────────────────────
 
-fn build_content_stream(page_height: f32, commands: &[PainterCommand]) -> pdf_writer::Buf {
+fn build_content_stream(
+    page_height: f32,
+    commands: &[PainterCommand],
+    opacity_alphas: &[f32],
+    opacity_names: &[Vec<u8>],
+) -> pdf_writer::Buf {
     let mut content = Content::new();
 
     for cmd in commands {
         match cmd {
+            PainterCommand::PushOpacity { alpha } => {
+                let idx = opacity_gs_index(opacity_alphas, *alpha);
+                content.save_state();
+                content.set_parameters(Name(opacity_names[idx].as_slice()));
+            }
+            PainterCommand::PopOpacity => {
+                content.restore_state();
+            }
+            PainterCommand::PushClipRect { x, y, w, h } => {
+                let pdf_y = page_height - y - h;
+                content.save_state();
+                content.rect(*x, pdf_y, *w, *h);
+                content.clip_nonzero();
+                content.end_path();
+            }
+            PainterCommand::PopClip => {
+                content.restore_state();
+            }
             PainterCommand::Rect { x, y, w, h, fill, stroke, stroke_width } => {
                 let pdf_y = page_height - y - h;
 

@@ -82,9 +82,7 @@ Rules:
 - [x] AST → JSON
 - [x] AST → plain text
 - [x] AST → plain text: `CELL` with `Content::Children` renders via `render_children` (nested block text), not only `extract_text`
-- [x] ~~AST → HTML~~ removed; preview and tooling use the PDF/SVG engine pipeline only
-- [x] Engine v2: StyledTree → LayoutTree → PageTree → PDF (`pdf-writer`)
-- [x] Engine v2: SVG export
+- [x] Engine v2: StyledTree → LayoutTree → PageTree → PDF (`pdf-writer`) and SVG (CLI, tools, and macOS preview share this pipeline)
 - [x] Legacy PDF path (`printpdf`) removed
 
 ---

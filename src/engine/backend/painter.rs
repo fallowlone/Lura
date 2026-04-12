@@ -3,6 +3,10 @@ use crate::engine::styles::Color;
 
 #[derive(Debug, Clone)]
 pub enum PainterCommand {
+    PushOpacity { alpha: f32 },
+    PopOpacity,
+    PushClipRect { x: f32, y: f32, w: f32, h: f32 },
+    PopClip,
     Rect {
         x: f32,
         y: f32,
@@ -107,6 +111,15 @@ pub fn from_page_tree(page_tree: &PageTree) -> PaintDocument {
 
 fn map_command(cmd: &DrawCommand) -> PainterCommand {
     match cmd {
+        DrawCommand::PushOpacity { alpha } => PainterCommand::PushOpacity { alpha: *alpha },
+        DrawCommand::PopOpacity => PainterCommand::PopOpacity,
+        DrawCommand::PushClipRect { x, y, w, h } => PainterCommand::PushClipRect {
+            x: *x,
+            y: *y,
+            w: *w,
+            h: *h,
+        },
+        DrawCommand::PopClip => PainterCommand::PopClip,
         DrawCommand::Rect { x, y, w, h, fill, stroke, stroke_width } => PainterCommand::Rect {
             x: *x,
             y: *y,

@@ -51,7 +51,7 @@ Early development. The pipeline works for experimentation; the **written specifi
 - [x] Exports: JSON, plain text; binary via PDF and SVG (same layout pipeline)
 - [x] Layout engine v2: taffy → A4 pagination → PDF (`pdf-writer`) and SVG
 - [x] CLI: `parse`, `validate`, `convert` (json | text | pdf | svg), `render`, `printers`, `print` (CUPS on Unix)
-- [x] macOS Lura app + Quick Look: native PDF preview (`PDFKit`) via FFI `lura_render_pdf` / `lura_free_pdf_result` (no HTML/CSS)
+- [x] macOS Lura app + Quick Look: native PDF preview (`PDFKit`) via FFI `lura_render_pdf` / `lura_free_pdf_result`
 
 ### Not done / partial
 

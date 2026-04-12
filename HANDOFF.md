@@ -4,9 +4,8 @@
 
 ## What changed this session
 
-- HTML/CSS export and legacy HTML FFI removed; FFI is `lura_render_pdf` + `lura_free_pdf_result` (`LuraPdfResult` in `src/lib.rs`). Rust crate package name is **`lura`** (`liblura.dylib`).
-- Lura host preview and Quick Look use `PDFKit` (`PDFPreviewRepresentable`, extension `PDFView`) and shared [`quicklook/Shared/LuraPdfFFI.swift`](quicklook/Shared/LuraPdfFFI.swift).
-- `install-preview.sh`: `PDFKit` instead of `WebKit`; host `swiftc` no longer uses `-parse-as-library` so `@main` links.
+- Preview and export are native PDF/SVG: FFI `lura_render_pdf` / `lura_free_pdf_result` (`LuraPdfResult` in `src/lib.rs`); Rust crate **`lura`** (`liblura.dylib`). macOS host + Quick Look use `PDFKit` (`PDFPreviewRepresentable`, `PDFView`) and [`quicklook/Shared/LuraPdfFFI.swift`](quicklook/Shared/LuraPdfFFI.swift).
+- `install-preview.sh`: builds the `PDFKit` host; `swiftc` no longer uses `-parse-as-library` so `@main` links.
 
 Earlier (2026-04-11):
 
@@ -21,7 +20,7 @@ Earlier (2026-04-11):
 |------|--------|
 | Lexer / Parser | Solid base; variables, arena AST, inline spans, block IDs |
 | Engine v2 | taffy layout → paginate → Painter → PDF (`pdf-writer`) / SVG; render cache |
-| Exports | JSON, text, PDF, SVG via `lura convert` / `lura render` (HTML export removed) |
+| Exports | JSON, text, PDF, SVG via `lura convert` / `lura render` |
 | macOS preview | Lura host + Quick Look use `PDFKit` + `lura_render_pdf` / `lura_free_pdf_result` (same bytes as engine PDF) |
 | CLI | clap subcommands: parse, validate, convert, render, printers, print |
 | Gaps vs vision | Formal spec doc, `diff`/`validate` depth, certificate tooling, figure block, PDF Unicode beyond WinAnsi (TrueType path), real WGPU preview |

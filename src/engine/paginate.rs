@@ -18,6 +18,12 @@ use super::text::{
 
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
+    /// Multiply alpha for subsequent primitives until matching [`DrawCommand::PopOpacity`].
+    PushOpacity { alpha: f32 },
+    PopOpacity,
+    /// Clip to axis-aligned rect (page coords, top-left origin) until [`DrawCommand::PopClip`].
+    PushClipRect { x: f32, y: f32, w: f32, h: f32 },
+    PopClip,
     Rect {
         x: f32,
         y: f32,
@@ -228,6 +234,16 @@ impl<'a> Paginator<'a> {
 
         self.cursor_y += margin_top;
 
+        let wrap_opacity = styles.opacity < 1.0 - 1e-4;
+        let wrap_clip = styles.overflow_clip;
+        let est_h_for_clip = self.estimate_height(node_idx).max(1.0);
+
+        if wrap_opacity {
+            self.push_cmd(DrawCommand::PushOpacity {
+                alpha: styles.opacity.clamp(0.0, 1.0),
+            });
+        }
+
         if let Some(bg) = styles.background {
             if !matches!(
                 &node.content,
@@ -246,60 +262,70 @@ impl<'a> Paginator<'a> {
             }
         }
 
+        if wrap_clip {
+            self.push_cmd(DrawCommand::PushClipRect {
+                x: block_x,
+                y: self.cursor_y,
+                w: node.width.max(1.0),
+                h: est_h_for_clip,
+            });
+        }
+
         let consumed = match node.content.clone() {
             // --- Text block ---
             LayoutContent::Text(text) => {
-                // ListItem: special path with bullet
+                // ListItem uses `place_list_item` (bullet). Must not `return` early: opacity/clip
+                // wraps were already pushed above and need PopClip/PopOpacity after this arm.
                 if matches!(node.kind, BoxKind::ListItem) {
-                    return self.place_list_item(node_idx, &text, margin_top, margin_bottom);
-                }
-
-                let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
-                let lines = break_text(
-                    &text,
-                    width,
-                    styles.font_size,
-                    styles.line_height,
-                    bold,
-                    styles.letter_spacing,
-                    styles.word_spacing,
-                );
-                let block_h = text_block_height(&lines);
-
-                if self.cursor_y + block_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
-                    self.new_page();
-                }
-
-                if let Some(bg) = styles.background {
-                    self.push_cmd(DrawCommand::Rect {
-                        x: block_x,
-                        y: self.cursor_y,
-                        w: node.width.max(1.0),
-                        h: block_h,
-                        fill: Some(bg),
-                        stroke: None,
-                        stroke_width: 0.0,
-                    });
-                }
-
-                for (i, line) in lines.iter().enumerate() {
-                    let y = self.cursor_y + styles.font_size + i as f32 * line.line_height_pt;
-                    if y > CONTENT_BOTTOM {
-                        break;
-                    }
-                    self.push_cmd(DrawCommand::Text {
-                        content: line.text.clone(),
-                        x: block_x + padding_left,
-                        y,
-                        font_size: styles.font_size,
-                        font_family: styles.font_family.clone(),
+                    self.place_list_item(node_idx, &text, margin_top, margin_bottom)
+                } else {
+                    let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
+                    let lines = break_text(
+                        &text,
+                        width,
+                        styles.font_size,
+                        styles.line_height,
                         bold,
-                        italic: styles.font_style == FontStyle::Italic,
-                        color: styles.color,
-                    });
+                        styles.letter_spacing,
+                        styles.word_spacing,
+                    );
+                    let block_h = text_block_height(&lines);
+
+                    if self.cursor_y + block_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
+                        self.new_page();
+                    }
+
+                    if let Some(bg) = styles.background {
+                        self.push_cmd(DrawCommand::Rect {
+                            x: block_x,
+                            y: self.cursor_y,
+                            w: node.width.max(1.0),
+                            h: block_h,
+                            fill: Some(bg),
+                            stroke: None,
+                            stroke_width: 0.0,
+                        });
+                    }
+
+                    for (i, line) in lines.iter().enumerate() {
+                        let y = self.cursor_y + styles.font_size + i as f32 * line.line_height_pt;
+                        if y > CONTENT_BOTTOM {
+                            break;
+                        }
+                        self.push_cmd(DrawCommand::Text {
+                            content: line.text.clone(),
+                            x: block_x + padding_left,
+                            y,
+                            font_size: styles.font_size,
+                            font_family: styles.font_family.clone(),
+                            bold,
+                            italic: styles.font_style == FontStyle::Italic,
+                            color: styles.color,
+                        });
+                    }
+                    self.cursor_y += block_h;
+                    block_h
                 }
-                self.cursor_y += block_h;
-                block_h
             }
             LayoutContent::Inline(runs) => {
                 let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
@@ -424,6 +450,14 @@ impl<'a> Paginator<'a> {
                 }
             }
         };
+
+        if wrap_clip {
+            self.push_cmd(DrawCommand::PopClip);
+        }
+
+        if wrap_opacity {
+            self.push_cmd(DrawCommand::PopOpacity);
+        }
 
         self.cursor_y += margin_bottom;
         consumed + margin_top + margin_bottom
@@ -891,10 +925,129 @@ mod tests {
     use super::*;
     use crate::engine::arena::DocumentArena;
     use crate::engine::layout::LayoutBox;
-    use crate::engine::styles::{BoxContent, InlineRun, ResolvedStyles, StyledBox};
+    use crate::engine::styles::{BoxContent, BoxKind, InlineRun, ResolvedStyles, StyledBox};
 
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01
+    }
+
+    #[test]
+    fn opacity_wrap_emits_push_pop_around_content() {
+        let mut arena = DocumentArena::new();
+
+        let mut p_styles = ResolvedStyles::for_kind(&BoxKind::Paragraph);
+        p_styles.opacity = 0.4;
+
+        let p_id = arena.alloc(StyledBox {
+            id: "p-1".to_string(),
+            kind: BoxKind::Paragraph,
+            styles: p_styles,
+            content: BoxContent::Text("x".to_string()),
+        });
+
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![p_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 200.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: p_id,
+                    kind: BoxKind::Paragraph,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 20.0,
+                    content: LayoutContent::Text("x".to_string()),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        let cmds = &pages.pages[0].commands;
+        assert!(
+            cmds.iter().any(|c| matches!(c, DrawCommand::PushOpacity { alpha } if (*alpha - 0.4).abs() < 1e-4)),
+            "expected PushOpacity(0.4), got {cmds:?}"
+        );
+        assert!(cmds.iter().any(|c| matches!(c, DrawCommand::PopOpacity)));
+    }
+
+    #[test]
+    fn list_item_opacity_and_clip_stacks_balance_after_place_list_item() {
+        let mut arena = DocumentArena::new();
+
+        let mut item_styles = ResolvedStyles::for_kind(&BoxKind::ListItem);
+        item_styles.opacity = 0.5;
+        item_styles.overflow_clip = true;
+
+        let item_id = arena.alloc(StyledBox {
+            id: "item-1".to_string(),
+            kind: BoxKind::ListItem,
+            styles: item_styles,
+            content: BoxContent::Text("li".to_string()),
+        });
+
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![item_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 200.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: item_id,
+                    kind: BoxKind::ListItem,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 40.0,
+                    content: LayoutContent::Text("li".to_string()),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        let cmds = &pages.pages[0].commands;
+
+        let push_o = cmds
+            .iter()
+            .filter(|c| matches!(c, DrawCommand::PushOpacity { .. }))
+            .count();
+        let pop_o = cmds.iter().filter(|c| matches!(c, DrawCommand::PopOpacity)).count();
+        let push_c = cmds
+            .iter()
+            .filter(|c| matches!(c, DrawCommand::PushClipRect { .. }))
+            .count();
+        let pop_c = cmds.iter().filter(|c| matches!(c, DrawCommand::PopClip)).count();
+        assert_eq!(push_o, pop_o, "opacity q/Q stack: {cmds:?}");
+        assert_eq!(push_c, pop_c, "clip stack: {cmds:?}");
     }
 
     #[test]

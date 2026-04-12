@@ -27,20 +27,32 @@ fn to_ndc(px: f32, py: f32, cw: f32, ch: f32) -> [f32; 2] {
     [px / cw * 2.0 - 1.0, 1.0 - py / ch * 2.0]
 }
 
-fn lura_to_linear_rgba(c: Color) -> [f32; 4] {
-    [c.r, c.g, c.b, 1.0]
+fn lura_to_linear_rgba(c: Color, opacity: f32) -> [f32; 4] {
+    let a = opacity.clamp(0.0, 1.0);
+    [c.r, c.g, c.b, a]
 }
 
-fn glyphon_color(c: Color) -> glyphon::Color {
-    glyphon::Color::rgb(
+fn glyphon_color(c: Color, opacity: f32) -> glyphon::Color {
+    let a = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    glyphon::Color::rgba(
         (c.r * 255.0).round().clamp(0.0, 255.0) as u8,
         (c.g * 255.0).round().clamp(0.0, 255.0) as u8,
         (c.b * 255.0).round().clamp(0.0, 255.0) as u8,
+        a,
     )
 }
 
-fn rect_fill_vertices(x: f32, y: f32, w: f32, h: f32, c: Color, cw: f32, ch: f32) -> [SolidVertex; 6] {
-    let col = lura_to_linear_rgba(c);
+fn rect_fill_vertices(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    c: Color,
+    opacity: f32,
+    cw: f32,
+    ch: f32,
+) -> [SolidVertex; 6] {
+    let col = lura_to_linear_rgba(c, opacity);
     let v = |px: f32, py: f32| SolidVertex {
         pos: to_ndc(px, py, cw, ch),
         color: col,
@@ -62,6 +74,7 @@ fn rect_stroke_vertices(
     h: f32,
     stroke: Color,
     sw: f32,
+    opacity: f32,
     cw: f32,
     ch: f32,
 ) -> Vec<SolidVertex> {
@@ -78,19 +91,29 @@ fn rect_stroke_vertices(
         (x + w - hw, y - hw, sw, h + sw),        // right
     ];
     for (qx, qy, qw, qh) in quads {
-        out.extend_from_slice(&rect_fill_vertices(qx, qy, qw, qh, stroke, cw, ch));
+        out.extend_from_slice(&rect_fill_vertices(qx, qy, qw, qh, stroke, opacity, cw, ch));
     }
     out
 }
 
-fn line_vertices(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, c: Color, cw: f32, ch: f32) -> [SolidVertex; 6] {
+fn line_vertices(
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    width: f32,
+    c: Color,
+    opacity: f32,
+    cw: f32,
+    ch: f32,
+) -> [SolidVertex; 6] {
     let hw = width * 0.5;
     let dx = x2 - x1;
     let dy = y2 - y1;
     let len = (dx * dx + dy * dy).sqrt().max(1e-6);
     let nx = (-dy / len) * hw;
     let ny = (dx / len) * hw;
-    let col = lura_to_linear_rgba(c);
+    let col = lura_to_linear_rgba(c, opacity);
     let v = |px: f32, py: f32| SolidVertex {
         pos: to_ndc(px, py, cw, ch),
         color: col,
@@ -149,25 +172,131 @@ struct OwnedTextArea {
     default_color: glyphon::Color,
 }
 
-fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch: f32) -> Vec<Segment> {
+struct RenderBatch {
+    scissor: (u32, u32, u32, u32),
+    segment: Segment,
+}
+
+fn full_viewport_scissor(width: u32, height: u32) -> (u32, u32, u32, u32) {
+    (0, 0, width.max(1), height.max(1))
+}
+
+fn clip_rect_to_scissor(
+    x: f32,
+    y_top: f32,
+    w: f32,
+    h: f32,
+    canvas_w: u32,
+    canvas_h: u32,
+) -> (u32, u32, u32, u32) {
+    let cw = canvas_w as f32;
+    let ch = canvas_h as f32;
+    let sx = x.floor().clamp(0.0, cw) as u32;
+    let sy = y_top.floor().clamp(0.0, ch) as u32;
+    let sw = w.ceil().clamp(1.0, cw) as u32;
+    let sh = h.ceil().clamp(1.0, ch) as u32;
+    // Empty extent (sw/sh = 0) when the rect is past the edge; batches skip these scissors.
+    let sw = sw.min(canvas_w.saturating_sub(sx));
+    let sh = sh.min(canvas_h.saturating_sub(sy));
+    (sx, sy, sw, sh)
+}
+
+fn scissor_intersect(
+    a: (u32, u32, u32, u32),
+    b: (u32, u32, u32, u32),
+) -> Option<(u32, u32, u32, u32)> {
+    let x1 = a.0.max(b.0);
+    let y1 = a.1.max(b.1);
+    let x2 = (a.0 + a.2).min(b.0 + b.2);
+    let y2 = (a.1 + a.3).min(b.1 + b.3);
+    let w = x2.saturating_sub(x1);
+    let h = y2.saturating_sub(y1);
+    if w == 0 || h == 0 {
+        None
+    } else {
+        Some((x1, y1, w, h))
+    }
+}
+
+fn build_segments(
+    doc: &PaintDocument,
+    font_system: &mut FontSystem,
+    cw: f32,
+    ch: f32,
+) -> Vec<RenderBatch> {
+    let canvas_w = cw as u32;
+    let canvas_h = ch as u32;
+    let full_sci = full_viewport_scissor(canvas_w, canvas_h);
+
     let flat = flat_commands(doc);
-    let mut segments: Vec<Segment> = Vec::new();
+    let mut batches: Vec<RenderBatch> = Vec::new();
     let mut solid: Vec<SolidVertex> = Vec::new();
     let mut texts: Vec<OwnedTextArea> = Vec::new();
 
-    let flush_solid = |segments: &mut Vec<Segment>, solid: &mut Vec<SolidVertex>| {
-        if !solid.is_empty() {
-            segments.push(Segment::Solid(std::mem::take(solid)));
-        }
-    };
-    let flush_text = |segments: &mut Vec<Segment>, texts: &mut Vec<OwnedTextArea>| {
-        if !texts.is_empty() {
-            segments.push(Segment::Text(std::mem::take(texts)));
-        }
+    let mut op_stack: Vec<f32> = vec![1.0];
+    let mut clip_stack: Vec<(u32, u32, u32, u32)> = Vec::new();
+
+    let flush_solid =
+        |batches: &mut Vec<RenderBatch>, solid: &mut Vec<SolidVertex>, sci: (u32, u32, u32, u32)| {
+            if solid.is_empty() {
+                return;
+            }
+            batches.push(RenderBatch {
+                scissor: sci,
+                segment: Segment::Solid(std::mem::take(solid)),
+            });
+        };
+    let flush_text =
+        |batches: &mut Vec<RenderBatch>, texts: &mut Vec<OwnedTextArea>, sci: (u32, u32, u32, u32)| {
+            if texts.is_empty() {
+                return;
+            }
+            batches.push(RenderBatch {
+                scissor: sci,
+                segment: Segment::Text(std::mem::take(texts)),
+            });
+        };
+
+    let flush_all = |batches: &mut Vec<RenderBatch>,
+                     solid: &mut Vec<SolidVertex>,
+                     texts: &mut Vec<OwnedTextArea>,
+                     sci: (u32, u32, u32, u32)| {
+        flush_solid(batches, solid, sci);
+        flush_text(batches, texts, sci);
     };
 
     for (y_off, cmd) in flat {
         match cmd {
+            PainterCommand::PushOpacity { alpha } => {
+                let sci_now = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_all(&mut batches, &mut solid, &mut texts, sci_now);
+                let a = alpha.clamp(0.0, 1.0);
+                let cur = *op_stack.last().unwrap_or(&1.0);
+                op_stack.push(cur * a);
+            }
+            PainterCommand::PopOpacity => {
+                let sci_now = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_all(&mut batches, &mut solid, &mut texts, sci_now);
+                op_stack.pop();
+                if op_stack.is_empty() {
+                    op_stack.push(1.0);
+                }
+            }
+            PainterCommand::PushClipRect { x, y, w, h } => {
+                let sci_now = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_all(&mut batches, &mut solid, &mut texts, sci_now);
+                let r = clip_rect_to_scissor(*x, y_off + y, *w, *h, canvas_w, canvas_h);
+                let next = match clip_stack.last().copied() {
+                    None => r,
+                    Some(base) => scissor_intersect(base, r).unwrap_or((0, 0, 0, 0)),
+                };
+                clip_stack.push(next);
+            }
+            PainterCommand::PopClip => {
+                let sci_now = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_all(&mut batches, &mut solid, &mut texts, sci_now);
+                clip_stack.pop();
+            }
             PainterCommand::Rect {
                 x,
                 y,
@@ -177,9 +306,20 @@ fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch
                 stroke,
                 stroke_width,
             } => {
-                flush_text(&mut segments, &mut texts);
+                let sci = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_text(&mut batches, &mut texts, sci);
+                let op = *op_stack.last().unwrap_or(&1.0);
                 if let Some(c) = fill {
-                    solid.extend_from_slice(&rect_fill_vertices(*x, y_off + y, *w, *h, *c, cw, ch));
+                    solid.extend_from_slice(&rect_fill_vertices(
+                        *x,
+                        y_off + y,
+                        *w,
+                        *h,
+                        *c,
+                        op,
+                        cw,
+                        ch,
+                    ));
                 }
                 if let Some(st) = stroke {
                     solid.extend(rect_stroke_vertices(
@@ -189,6 +329,7 @@ fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch
                         *h,
                         *st,
                         *stroke_width,
+                        op,
                         cw,
                         ch,
                     ));
@@ -202,7 +343,9 @@ fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch
                 color,
                 width,
             } => {
-                flush_text(&mut segments, &mut texts);
+                let sci = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_text(&mut batches, &mut texts, sci);
+                let op = *op_stack.last().unwrap_or(&1.0);
                 solid.extend_from_slice(&line_vertices(
                     *x1,
                     y_off + y1,
@@ -210,6 +353,7 @@ fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch
                     y_off + y2,
                     *width,
                     *color,
+                    op,
                     cw,
                     ch,
                 ));
@@ -224,10 +368,12 @@ fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch
                 italic,
                 color,
             } => {
-                flush_solid(&mut segments, &mut solid);
+                let sci = clip_stack.last().copied().unwrap_or(full_sci);
+                flush_solid(&mut batches, &mut solid, sci);
                 if content.is_empty() {
                     continue;
                 }
+                let op = *op_stack.last().unwrap_or(&1.0);
                 let family = if font_family.eq_ignore_ascii_case("helvetica")
                     || font_family.eq_ignore_ascii_case("arial")
                 {
@@ -253,20 +399,19 @@ fn build_segments(doc: &PaintDocument, font_system: &mut FontSystem, cw: f32, ch
                 buffer.set_size(font_system, Some(cw), None);
                 buffer.set_text(font_system, content, &attrs, Shaping::Advanced, None);
                 buffer.shape_until_scroll(font_system, false);
-                // `y` in PainterCommand is SVG text baseline; shift up to glyphon top.
                 let top = y_off + y - font_size * 0.85;
                 texts.push(OwnedTextArea {
                     buffer,
                     left: *x,
                     top,
-                    default_color: glyphon_color(*color),
+                    default_color: glyphon_color(*color, op),
                 });
             }
         }
     }
-    flush_solid(&mut segments, &mut solid);
-    flush_text(&mut segments, &mut texts);
-    segments
+    let sci = clip_stack.last().copied().unwrap_or(full_sci);
+    flush_all(&mut batches, &mut solid, &mut texts, sci);
+    batches
 }
 
 const SOLID_SHADER: &str = r#"
@@ -318,7 +463,7 @@ fn create_solid_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> 
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::REPLACE),
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -525,8 +670,12 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
         first_pass = false;
     }
 
-    for seg in segments {
-        match seg {
+    for batch in segments {
+        let (sx, sy, sw, sh) = batch.scissor;
+        if sw == 0 || sh == 0 {
+            continue;
+        }
+        match batch.segment {
             Segment::Solid(verts) => {
                 if verts.is_empty() {
                     continue;
@@ -569,6 +718,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                         multiview_mask: None,
                     });
                     pass.set_pipeline(&solid_pipeline);
+                    pass.set_scissor_rect(sx, sy, sw, sh);
                     pass.set_vertex_buffer(0, solid_vertex_buffer.slice(..));
                     pass.draw(0..verts.len() as u32, 0..1);
                 }
@@ -625,6 +775,7 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
+                    pass.set_scissor_rect(sx, sy, sw, sh);
                     text_renderer
                         .render(&text_atlas, &viewport, &mut pass)
                         .map_err(|_| ())?;
@@ -663,4 +814,29 @@ async fn render_to_png_async(doc: &PaintDocument) -> Result<Vec<u8>, ()> {
 
     let rgba = read_rgba_texture(&device, &queue, &texture, width, height);
     Ok(rgba_to_png(width, height, rgba))
+}
+
+#[cfg(test)]
+mod clip_rect_to_scissor_tests {
+    use super::clip_rect_to_scissor;
+
+    #[test]
+    fn clip_past_right_edge_yields_zero_width_within_target() {
+        let canvas_w = 100u32;
+        let canvas_h = 50u32;
+        let (sx, sy, sw, sh) = clip_rect_to_scissor(100.0, 0.0, 10.0, 10.0, canvas_w, canvas_h);
+        assert_eq!((sx, sy, sw, sh), (100, 0, 0, 10));
+        assert!(sx.saturating_add(sw) <= canvas_w);
+        assert!(sy.saturating_add(sh) <= canvas_h);
+    }
+
+    #[test]
+    fn clip_past_bottom_edge_yields_zero_height_within_target() {
+        let canvas_w = 80u32;
+        let canvas_h = 60u32;
+        let (sx, sy, sw, sh) = clip_rect_to_scissor(0.0, 60.0, 80.0, 4.0, canvas_w, canvas_h);
+        assert_eq!((sx, sy, sw, sh), (0, 60, 80, 0));
+        assert!(sx.saturating_add(sw) <= canvas_w);
+        assert!(sy.saturating_add(sh) <= canvas_h);
+    }
 }

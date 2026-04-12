@@ -82,6 +82,11 @@ pub struct ResolvedStyles {
     pub color: Color,
     pub background: Option<Color>,
 
+    /// Block opacity 0…1 (Graphics 1.0). Not inherited; default 1.
+    pub opacity: f32,
+    /// Rectangular clip to estimated block bounds (`overflow: clip` / `hidden`).
+    pub overflow_clip: bool,
+
     pub margin: EdgeInsets,
     pub padding: EdgeInsets,
 
@@ -141,6 +146,8 @@ impl Default for ResolvedStyles {
             font_style: FontStyle::Normal,
             color: Color::BLACK,
             background: None,
+            opacity: 1.0,
+            overflow_clip: false,
             margin: EdgeInsets::new(0.0, 0.0, 2.5, 0.0),
             padding: EdgeInsets::zero(),
             width: None,
