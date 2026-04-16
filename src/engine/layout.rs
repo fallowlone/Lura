@@ -147,14 +147,16 @@ fn build_taffy_node(
     match &node.content {
         BoxContent::Text(_) | BoxContent::Inline(_) | BoxContent::Empty => {
             // Leaf: intrinsic size from `measure_leaf` during `compute_layout_with_measure`.
-            taffy.new_leaf_with_context(style, arena_id).unwrap()
+            taffy.new_leaf_with_context(style, arena_id)
+                .expect("taffy: new_leaf_with_context")
         }
         BoxContent::Children(children) => {
             let child_ids: Vec<NodeId> = children
                 .iter()
                 .map(|&child_arena_id| build_taffy_node(child_arena_id, styled, taffy))
                 .collect();
-            taffy.new_with_children(style, &child_ids).unwrap()
+            taffy.new_with_children(style, &child_ids)
+                .expect("taffy: new_with_children")
         }
     }
 }
@@ -268,7 +270,9 @@ fn extract_layout(
     parent_y: f32,
     layout_tree: &mut LayoutTree,
 ) -> LayoutNodeIdx {
-    let layout = taffy.layout(taffy_id).unwrap();
+    let layout = taffy
+        .layout(taffy_id)
+        .expect("taffy: layout(taffy_id) for built node");
 
     let abs_x = parent_x + layout.location.x;
     let abs_y = parent_y + layout.location.y;
