@@ -74,7 +74,7 @@ fn render_block(block: &Block, doc: &Document, out: &mut String, depth: usize) {
                     out.push_str(&format!("  caption: {}\n", c));
                 }
             }
-            out.push_str("\n");
+            out.push('\n');
         }
         "IMAGE" => {
             if let Some(Value::Str(src)) = block.attrs.get("src") {

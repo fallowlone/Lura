@@ -3,7 +3,6 @@
 /// Character widths use ttf-parser with real font metrics.
 /// Loaded once in `OnceLock` on first use.
 /// If no system font is found, falls back to a 0.55 width factor.
-
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
@@ -75,21 +74,18 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
     let mut advances = HashMap::with_capacity(512);
     // Cache ASCII + Latin Extended (covers German umlauts and typography)
     for code in 32u32..1024u32 {
-        if let Some(ch) = char::from_u32(code) {
-            if let Some(gid) = face.glyph_index(ch) {
-                if let Some(adv) = face.glyph_hor_advance(gid) {
+        if let Some(ch) = char::from_u32(code)
+            && let Some(gid) = face.glyph_index(ch)
+                && let Some(adv) = face.glyph_hor_advance(gid) {
                     advances.insert(ch, adv);
                 }
-            }
-        }
     }
     // Bullet and typographic symbols
     for ch in ['•', '–', '—', '…', '"', '"', '€', '©', '®'] {
-        if let Some(gid) = face.glyph_index(ch) {
-            if let Some(adv) = face.glyph_hor_advance(gid) {
+        if let Some(gid) = face.glyph_index(ch)
+            && let Some(adv) = face.glyph_hor_advance(gid) {
                 advances.insert(ch, adv);
             }
-        }
     }
 
     Some(GlyphMetrics { advances, units_per_em })
@@ -204,20 +200,17 @@ fn load_metrics_mono(bold: bool) -> Option<GlyphMetrics> {
     let units_per_em = face.units_per_em();
     let mut advances = HashMap::with_capacity(512);
     for code in 32u32..1024u32 {
-        if let Some(ch) = char::from_u32(code) {
-            if let Some(gid) = face.glyph_index(ch) {
-                if let Some(adv) = face.glyph_hor_advance(gid) {
+        if let Some(ch) = char::from_u32(code)
+            && let Some(gid) = face.glyph_index(ch)
+                && let Some(adv) = face.glyph_hor_advance(gid) {
                     advances.insert(ch, adv);
                 }
-            }
-        }
     }
     for ch in ['•', '–', '—', '…', '"', '"', '€', '©', '®'] {
-        if let Some(gid) = face.glyph_index(ch) {
-            if let Some(adv) = face.glyph_hor_advance(gid) {
+        if let Some(gid) = face.glyph_index(ch)
+            && let Some(adv) = face.glyph_hor_advance(gid) {
                 advances.insert(ch, adv);
             }
-        }
     }
     Some(GlyphMetrics { advances, units_per_em })
 }
@@ -242,11 +235,10 @@ fn char_advance_pt_inner(ch: char, font_size_pt: f32, bold: bool, mono: bool) ->
     } else {
         get_metrics(bold)
     };
-    if let Some(m) = metrics {
-        if let Some(&adv) = m.advances.get(&ch) {
+    if let Some(m) = metrics
+        && let Some(&adv) = m.advances.get(&ch) {
             return adv as f32 / m.units_per_em as f32 * font_size_pt;
         }
-    }
     // Fallback: monospace-ish vs proportional
     font_size_pt * if mono { 0.6 } else { 0.55 }
 }
@@ -547,28 +539,28 @@ pub fn inline_lines_block_height(lines: &[InlineLine], font_size_pt: f32, line_h
     }
 }
 
+/// Layout options for text wrapping and measurement.
+pub struct TextLayoutOpts {
+    pub font_size_pt: f32,
+    pub line_height: f32,
+    pub letter_spacing_pt: f32,
+    pub word_spacing_pt: f32,
+    pub base_bold: bool,
+    pub justify: bool,
+}
+
 /// Block height for inline runs after wrapping to `max_width_pt` (matches paginator math).
 pub fn inline_runs_block_height(
     runs: &[InlineRun],
     max_width_pt: f32,
-    font_size_pt: f32,
-    line_height: f32,
-    letter_spacing_pt: f32,
-    word_spacing_pt: f32,
-    base_bold: bool,
-    justify: bool,
+    opts: &TextLayoutOpts,
 ) -> f32 {
     let lines = break_inline_runs(
         runs,
         max_width_pt,
-        font_size_pt,
-        line_height,
-        letter_spacing_pt,
-        word_spacing_pt,
-        base_bold,
-        justify,
+        opts,
     );
-    inline_lines_block_height(&lines, font_size_pt, line_height)
+    inline_lines_block_height(&lines, opts.font_size_pt, opts.line_height)
 }
 
 /// Widest line when wrapping is effectively disabled (max-content width probe).
@@ -584,12 +576,14 @@ pub fn inline_runs_intrinsic_max_line_width_pt(
     let lines = break_inline_runs(
         runs,
         HUGE,
-        font_size_pt,
-        line_height,
-        letter_spacing_pt,
-        word_spacing_pt,
-        base_bold,
-        false,
+        &TextLayoutOpts {
+            font_size_pt,
+            line_height,
+            letter_spacing_pt,
+            word_spacing_pt,
+            base_bold,
+            justify: false,
+        },
     );
     lines.iter().map(|l| l.width).fold(0.0f32, f32::max).max(1.0)
 }
@@ -667,19 +661,14 @@ pub struct InlineLine {
 pub fn break_inline_runs(
     runs: &[InlineRun],
     max_width_pt: f32,
-    font_size_pt: f32,
-    line_height: f32,
-    letter_spacing_pt: f32,
-    word_spacing_pt: f32,
-    base_bold: bool,
-    justify: bool,
+    opts: &TextLayoutOpts,
 ) -> Vec<InlineLine> {
     let mut lines: Vec<InlineLine> = Vec::new();
     let mut current = InlineLine {
         fragments: Vec::new(),
         width: 0.0,
-        line_height_pt: font_size_pt * line_height,
-        font_size: font_size_pt,
+        line_height_pt: opts.font_size_pt * opts.line_height,
+        font_size: opts.font_size_pt,
         full_text: String::new(),
     };
 
@@ -689,23 +678,23 @@ pub fn break_inline_runs(
             parts.push(run.text.clone());
         }
         for part in parts {
-            let measure_bold = base_bold || run.bold;
+            let measure_bold = opts.base_bold || run.bold;
             let width = if run.code {
                 let m = text_width_pt_with_spacing_mono(
                     &part,
-                    font_size_pt,
+                    opts.font_size_pt,
                     measure_bold,
-                    letter_spacing_pt,
-                    word_spacing_pt,
+                    opts.letter_spacing_pt,
+                    opts.word_spacing_pt,
                 );
-                m.max(courier_core14_width_floor_pt(&part, font_size_pt))
+                m.max(courier_core14_width_floor_pt(&part, opts.font_size_pt))
             } else {
                 text_width_pt_with_spacing(
                     &part,
-                    font_size_pt,
+                    opts.font_size_pt,
                     measure_bold,
-                    letter_spacing_pt,
-                    word_spacing_pt,
+                    opts.letter_spacing_pt,
+                    opts.word_spacing_pt,
                 )
             };
 
@@ -720,8 +709,8 @@ pub fn break_inline_runs(
                 current = InlineLine {
                     fragments: Vec::new(),
                     width: 0.0,
-                    line_height_pt: font_size_pt * line_height,
-                    font_size: font_size_pt,
+                    line_height_pt: opts.font_size_pt * opts.line_height,
+                    font_size: opts.font_size_pt,
                     full_text: String::new(),
                 };
             }
@@ -743,7 +732,7 @@ pub fn break_inline_runs(
         lines.push(current);
     }
 
-    if justify {
+    if opts.justify {
         let justified_line_count = lines.len().saturating_sub(1);
         for line in lines.iter_mut().take(justified_line_count) {
             let spaces = line.fragments.iter()
@@ -845,7 +834,14 @@ mod space_width_tests {
             code: false,
             link: None,
         }];
-        let lines = break_inline_runs(&runs, 100_000.0, 12.0, 1.2, 0.0, 0.0, true, false);
+        let lines = break_inline_runs(&runs, 100_000.0, &TextLayoutOpts {
+            font_size_pt: 12.0,
+            line_height: 1.2,
+            letter_spacing_pt: 0.0,
+            word_spacing_pt: 0.0,
+            base_bold: true,
+            justify: false,
+        });
         let frags = &lines[0].fragments;
         for f in frags {
             assert!(
@@ -875,7 +871,14 @@ mod space_width_tests {
             code: false,
             link: None,
         }];
-        let lines = break_inline_runs(&runs, 1_000_000.0, 14.0, 1.2, 0.0, 0.0, true, false);
+        let lines = break_inline_runs(&runs, 1_000_000.0, &TextLayoutOpts {
+            font_size_pt: 14.0,
+            line_height: 1.2,
+            letter_spacing_pt: 0.0,
+            word_spacing_pt: 0.0,
+            base_bold: true,
+            justify: false,
+        });
         let w0 = lines[0].fragments[0].width;
         assert!(
             w0 > 18.0,

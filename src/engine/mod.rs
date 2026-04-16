@@ -59,6 +59,7 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
     let mut page_tree = paginate::PageTree {
         pages: Vec::new(),
         block_start_page: std::collections::HashMap::new(),
+        anchor_positions: std::collections::HashMap::new(),
     };
     // After the first `apply_page_placeholders`, `{{page:…}}` is gone; we must not use that
     // to exit the loop or we never reflow with substituted digits and never compare fingerprints.

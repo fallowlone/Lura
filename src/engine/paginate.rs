@@ -16,7 +16,7 @@ use super::styles::{
 };
 use super::text::{
     break_inline_runs, break_text, inline_lines_block_height, inline_runs_block_height,
-    text_block_height, text_width_pt_with_spacing, InlineLine, TextLine,
+    text_block_height, text_width_pt_with_spacing, InlineLine, TextLine, TextLayoutOpts,
 };
 
 // --- Draw commands ---
@@ -81,11 +81,21 @@ impl Page {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AnchorPosition {
+    /// 1-based page index
+    pub page_index: u32,
+    /// Y coordinate (top-down) on the page
+    pub y: f32,
+}
+
 #[derive(Debug)]
 pub struct PageTree {
     pub pages: Vec<Page>,
     /// Stable block `id` → 1-based page index where the block first enters pagination.
     pub block_start_page: HashMap<String, u32>,
+    /// Anchor ID → position (page index, Y coordinate). Collected during painting.
+    pub anchor_positions: HashMap<String, AnchorPosition>,
 }
 
 impl PageTree {
@@ -93,6 +103,7 @@ impl PageTree {
         Self {
             pages: vec![Page::new()],
             block_start_page: HashMap::new(),
+            anchor_positions: HashMap::new(),
         }
     }
 }
@@ -116,6 +127,8 @@ struct Paginator<'a> {
     pages: Vec<Page>,
     cursor_y: f32,
     block_start_page: HashMap<String, u32>,
+    /// Anchor ID → position (page index, Y coordinate). Collected during painting.
+    anchor_positions: HashMap<String, AnchorPosition>,
     /// Counter for the current ordered list (`None` = bulleted)
     list_item_counter: Option<usize>,
     page_header: Option<String>,
@@ -126,6 +139,9 @@ struct Paginator<'a> {
     pending_block_starts: Vec<String>,
     /// Opacity stack for cross-page rebalancing inside `new_page`.
     active_opacity: Vec<f32>,
+    /// Clip rect stack for cross-page rebalancing inside `new_page`.
+    /// Stores (x, y, w, h) of each active clip in order of nesting.
+    active_clip: Vec<(f32, f32, f32, f32)>,
     /// Per-layout-node (x, width) overrides. Used by `place_table` to snap cell
     /// children to the normalized column rect (taffy computes flex per-row, so
     /// cell widths can differ across rows in the same column).
@@ -140,11 +156,13 @@ impl<'a> Paginator<'a> {
             pages: vec![Page::new()],
             cursor_y: CONTENT_TOP,
             block_start_page: HashMap::new(),
+            anchor_positions: HashMap::new(),
             list_item_counter: None,
             page_header: None,
             page_footer: None,
             pending_block_starts: Vec::new(),
             active_opacity: Vec::new(),
+            active_clip: Vec::new(),
             rect_override: HashMap::new(),
         }
     }
@@ -159,7 +177,7 @@ impl<'a> Paginator<'a> {
         n
     }
 
-    /// Queue a block to record its start page when its first draw lands.
+    /// Queue a block to record its start page and anchor position (if applicable) when its first draw lands.
     fn queue_block_start(&mut self, arena_id: super::arena::NodeId) {
         let id = self.styled.get(arena_id).id.clone();
         if id.is_empty() || self.block_start_page.contains_key(&id) {
@@ -173,13 +191,56 @@ impl<'a> Paginator<'a> {
             return;
         }
         let page_1based = self.pages.len() as u32;
-        for id in self.pending_block_starts.drain(..) {
-            self.block_start_page.entry(id).or_insert(page_1based);
+        let cursor_y = self.cursor_y;
+        let styled_roots: Vec<_> = self.styled.roots.to_vec();
+        let ids_to_process: Vec<_> = self.pending_block_starts.drain(..).collect();
+
+        for id in ids_to_process {
+            self.block_start_page.entry(id.clone()).or_insert(page_1based);
+
+            // Record anchor position if this block has an anchor attribute.
+            let styled_node = styled_roots.iter().find_map(|&root_id| {
+                self.find_styled_node_by_id(root_id, &id)
+            });
+            if let Some(styled_node) = styled_node
+                && let Some(anchor_id) = styled_node.styles.anchor.as_ref()
+                    && !anchor_id.is_empty() && !self.anchor_positions.contains_key(anchor_id) {
+                        self.anchor_positions.insert(
+                            anchor_id.clone(),
+                            AnchorPosition {
+                                page_index: page_1based,
+                                y: cursor_y,
+                            },
+                        );
+                    }
         }
+    }
+
+    /// Find a styled node by its block ID (used for anchor tracking).
+    fn find_styled_node_by_id(&self, node_id: super::arena::NodeId, block_id: &str) -> Option<&super::styles::StyledBox> {
+        let node = self.styled.get(node_id);
+        if node.id == block_id {
+            return Some(node);
+        }
+        if let super::styles::BoxContent::Children(children) = &node.content {
+            for &child_id in children {
+                if let Some(found) = self.find_styled_node_by_id(child_id, block_id) {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     fn new_page(&mut self) {
         // Close cross-page wraps on old page.
+        for _ in &self.active_clip {
+            self.pages
+                .last_mut()
+                .expect("at least one page exists")
+                .commands
+                .push(DrawCommand::PopClip);
+        }
         for _ in &self.active_opacity {
             self.pages
                 .last_mut()
@@ -191,6 +252,21 @@ impl<'a> Paginator<'a> {
         self.cursor_y = CONTENT_TOP;
         self.draw_page_chrome();
         // Re-open wraps on new page.
+        let clips = self.active_clip.clone();
+        for (clip_x, _clip_y, clip_w, _clip_h) in clips {
+            // Continuation-page clip rect uses the new page's full content area.
+            // This keeps the clip effective but constrains it to the new page's bounds.
+            self.pages
+                .last_mut()
+                .expect("at least one page exists")
+                .commands
+                .push(DrawCommand::PushClipRect {
+                    x: clip_x,
+                    y: CONTENT_TOP,
+                    w: clip_w,
+                    h: CONTENT_BOTTOM - CONTENT_TOP,
+                });
+        }
         let alphas = self.active_opacity.clone();
         for alpha in alphas {
             self.pages
@@ -208,6 +284,12 @@ impl<'a> Paginator<'a> {
             DrawCommand::PushOpacity { alpha } => self.active_opacity.push(*alpha),
             DrawCommand::PopOpacity => {
                 self.active_opacity.pop();
+            }
+            DrawCommand::PushClipRect { x, y, w, h } => self.active_clip.push((*x, *y, *w, *h)),
+            DrawCommand::PopClip => {
+                self.active_clip
+                    .pop()
+                    .expect("PopClip without matching PushClipRect");
             }
             _ => {}
         }
@@ -322,8 +404,8 @@ impl<'a> Paginator<'a> {
             });
         }
 
-        if let Some(bg) = styles.background {
-            if !matches!(
+        if let Some(bg) = styles.background
+            && !matches!(
                 &node.content,
                 LayoutContent::Text(_) | LayoutContent::Inline(_)
             ) {
@@ -344,7 +426,6 @@ impl<'a> Paginator<'a> {
                     });
                 }
             }
-        }
 
         if wrap_clip {
             self.push_cmd(DrawCommand::PushClipRect {
@@ -389,12 +470,14 @@ impl<'a> Paginator<'a> {
                 let lines = break_inline_runs(
                     &runs,
                     width,
-                    styles.font_size,
-                    styles.line_height,
-                    styles.letter_spacing,
-                    styles.word_spacing,
-                    bold,
-                    justify,
+                    &TextLayoutOpts {
+                        font_size_pt: styles.font_size,
+                        line_height: styles.line_height,
+                        letter_spacing_pt: styles.letter_spacing,
+                        word_spacing_pt: styles.word_spacing,
+                        base_bold: bold,
+                        justify,
+                    },
                 );
                 self.paint_inline_lines_paginated(
                     &lines,
@@ -561,13 +644,13 @@ impl<'a> Paginator<'a> {
                 let baseline_y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
                 // Render each line as a single Text command to avoid micro-gaps.
                 let first = line.fragments.first();
-                let font_family = if first.map_or(false, |f| f.code) {
+                let font_family = if first.is_some_and(|f| f.code) {
                     "Courier".to_string()
                 } else {
                     styles.font_family.clone()
                 };
                 let group_bold = first.map_or(bold, |f| bold || f.bold);
-                let group_italic = italic_base || first.map_or(false, |f| f.italic);
+                let group_italic = italic_base || first.is_some_and(|f| f.italic);
                 let (link_uri, link_width_pt) = line
                     .fragments
                     .iter()
@@ -721,12 +804,14 @@ impl<'a> Paginator<'a> {
         let lines = break_inline_runs(
             runs,
             width,
-            styles.font_size,
-            styles.line_height,
-            styles.letter_spacing,
-            styles.word_spacing,
-            bold,
-            justify,
+            &TextLayoutOpts {
+                font_size_pt: styles.font_size,
+                line_height: styles.line_height,
+                letter_spacing_pt: styles.letter_spacing,
+                word_spacing_pt: styles.word_spacing,
+                base_bold: bold,
+                justify,
+            },
         );
         let block_h = inline_lines_block_height(&lines, styles.font_size, styles.line_height);
 
@@ -1012,12 +1097,14 @@ impl<'a> Paginator<'a> {
                                 inline_runs_block_height(
                                     runs,
                                     w,
-                                    cell_styles.font_size,
-                                    cell_styles.line_height,
-                                    cell_styles.letter_spacing,
-                                    cell_styles.word_spacing,
-                                    bold,
-                                    justify,
+                                    &TextLayoutOpts {
+                                        font_size_pt: cell_styles.font_size,
+                                        line_height: cell_styles.line_height,
+                                        letter_spacing_pt: cell_styles.letter_spacing,
+                                        word_spacing_pt: cell_styles.word_spacing,
+                                        base_bold: bold,
+                                        justify,
+                                    },
                                 ) + pad_v
                             }
                         }
@@ -1035,7 +1122,7 @@ impl<'a> Paginator<'a> {
                 .max(12.0);
 
             let page_before_break = self.pages.len();
-            if !row_styles.allow_row_split
+            if !row_styles.allow_row_overflow
                 && self.cursor_y + row_height > CONTENT_BOTTOM
                 && self.cursor_y > CONTENT_TOP
             {
@@ -1187,23 +1274,27 @@ impl<'a> Paginator<'a> {
                             CellLines::Inline(break_inline_runs(
                                 runs,
                                 f32::MAX / 4.0,
-                                cell_styles.font_size,
-                                cell_styles.line_height,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                                bold,
-                                false,
+                                &TextLayoutOpts {
+                                    font_size_pt: cell_styles.font_size,
+                                    line_height: cell_styles.line_height,
+                                    letter_spacing_pt: cell_styles.letter_spacing,
+                                    word_spacing_pt: cell_styles.word_spacing,
+                                    base_bold: bold,
+                                    justify: false,
+                                },
                             ))
                         } else if cell_styles.truncate {
                             let all = break_inline_runs(
                                 runs,
                                 f32::MAX / 4.0,
-                                cell_styles.font_size,
-                                cell_styles.line_height,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                                bold,
-                                false,
+                                &TextLayoutOpts {
+                                    font_size_pt: cell_styles.font_size,
+                                    line_height: cell_styles.line_height,
+                                    letter_spacing_pt: cell_styles.letter_spacing,
+                                    word_spacing_pt: cell_styles.word_spacing,
+                                    base_bold: bold,
+                                    justify: false,
+                                },
                             );
                             let mut first_line = all.into_iter().next();
                             if let Some(line) = first_line.as_mut() {
@@ -1221,12 +1312,14 @@ impl<'a> Paginator<'a> {
                             CellLines::Inline(break_inline_runs(
                                 runs,
                                 inner_w,
-                                cell_styles.font_size,
-                                cell_styles.line_height,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                                bold,
-                                justify,
+                                &TextLayoutOpts {
+                                    font_size_pt: cell_styles.font_size,
+                                    line_height: cell_styles.line_height,
+                                    letter_spacing_pt: cell_styles.letter_spacing,
+                                    word_spacing_pt: cell_styles.word_spacing,
+                                    base_bold: bold,
+                                    justify,
+                                },
                             ))
                         }
                     }
@@ -1415,12 +1508,14 @@ impl<'a> Paginator<'a> {
                     inline_runs_block_height(
                         runs,
                         w,
-                        styles.font_size,
-                        styles.line_height,
-                        styles.letter_spacing,
-                        styles.word_spacing,
-                        bold,
-                        justify,
+                        &TextLayoutOpts {
+                            font_size_pt: styles.font_size,
+                            line_height: styles.line_height,
+                            letter_spacing_pt: styles.letter_spacing,
+                            word_spacing_pt: styles.word_spacing,
+                            base_bold: bold,
+                            justify,
+                        },
                     )
                 }
                 LayoutContent::Children(children) => {
@@ -1635,7 +1730,7 @@ fn compute_table_col_widths(
 
     let mut tracks: Vec<GridColumnTrack> = tracks.to_vec();
     if tracks.len() < num_cols {
-        tracks.extend(std::iter::repeat(GridColumnTrack::Fr(1.0)).take(num_cols - tracks.len()));
+        tracks.extend(std::iter::repeat_n(GridColumnTrack::Fr(1.0), num_cols - tracks.len()));
     } else if tracks.len() > num_cols {
         tracks.truncate(num_cols);
     }
@@ -1719,6 +1814,7 @@ pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> Pa
     PageTree {
         pages: pager.pages,
         block_start_page: pager.block_start_page,
+        anchor_positions: pager.anchor_positions,
     }
 }
 #[cfg(test)]
@@ -2269,6 +2365,73 @@ mod tests {
             assert_eq!(
                 pushes, pops,
                 "page {}: PushOpacity/PopOpacity count mismatch: {pushes}/{pops}",
+                i + 1
+            );
+        }
+    }
+
+    /// Clipped node spanning a page break must have balanced PushClipRect/PopClip on each page.
+    #[test]
+    fn new_page_rebalances_active_clip() {
+        let mut arena = DocumentArena::new();
+
+        let mut quote_styles = ResolvedStyles::for_kind(&BoxKind::Quote);
+        quote_styles.overflow_clip = true;
+        let text = "word ".repeat(3000);
+        let quote_id = arena.alloc(StyledBox {
+            id: "quote-clip".to_string(),
+            kind: BoxKind::Quote,
+            styles: quote_styles,
+            content: BoxContent::Text(text.clone()),
+        });
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![quote_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 3000.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: quote_id,
+                    kind: BoxKind::Quote,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 3000.0,
+                    content: LayoutContent::Text(text),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        assert!(pages.pages.len() >= 2);
+        for (i, page) in pages.pages.iter().enumerate() {
+            let pushes = page
+                .commands
+                .iter()
+                .filter(|c| matches!(c, DrawCommand::PushClipRect { .. }))
+                .count();
+            let pops = page
+                .commands
+                .iter()
+                .filter(|c| matches!(c, DrawCommand::PopClip))
+                .count();
+            assert_eq!(
+                pushes, pops,
+                "page {}: PushClipRect/PopClip count mismatch: {pushes}/{pops}",
                 i + 1
             );
         }

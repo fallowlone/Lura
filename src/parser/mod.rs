@@ -83,8 +83,6 @@ impl Parser {
                 self.expect(&Token::Colon)?;
                 let value = self.parse_value()?;
                 vars.insert(key, value);
-            } else if self.current() == &Token::Comma {
-                self.advance()?;
             } else {
                 self.advance()?;
             }
@@ -212,38 +210,35 @@ fn parse_inline_nodes(input: &str) -> Vec<InlineNode> {
         let mut i = 0usize;
 
         while i < s.len() {
-            if s[i..].starts_with("**") {
-                if let Some(close_rel) = s[i + 2..].find("**") {
+            if s[i..].starts_with("**")
+                && let Some(close_rel) = s[i + 2..].find("**") {
                     let inner = &s[i + 2..i + 2 + close_rel];
                     out.push(InlineNode::Strong(parse_segment(inner)));
                     i += 4 + close_rel;
                     continue;
                 }
-            }
 
-            if s[i..].starts_with('*') {
-                if let Some(close_rel) = s[i + 1..].find('*') {
+            if s[i..].starts_with('*')
+                && let Some(close_rel) = s[i + 1..].find('*') {
                     let inner = &s[i + 1..i + 1 + close_rel];
                     out.push(InlineNode::Emphasis(parse_segment(inner)));
                     i += 2 + close_rel;
                     continue;
                 }
-            }
 
-            if s[i..].starts_with('`') {
-                if let Some(close_rel) = s[i + 1..].find('`') {
+            if s[i..].starts_with('`')
+                && let Some(close_rel) = s[i + 1..].find('`') {
                     let inner = &s[i + 1..i + 1 + close_rel];
                     out.push(InlineNode::CodeSpan(inner.to_string()));
                     i += 2 + close_rel;
                     continue;
                 }
-            }
 
-            if s[i..].starts_with('[') {
-                if let Some(close_text_rel) = s[i + 1..].find(']') {
+            if s[i..].starts_with('[')
+                && let Some(close_text_rel) = s[i + 1..].find(']') {
                     let text_end = i + 1 + close_text_rel;
-                    if s[text_end + 1..].starts_with('(') {
-                        if let Some(close_href_rel) = s[text_end + 2..].find(')') {
+                    if s[text_end + 1..].starts_with('(')
+                        && let Some(close_href_rel) = s[text_end + 2..].find(')') {
                             let text_inner = &s[i + 1..text_end];
                             let href_inner = &s[text_end + 2..text_end + 2 + close_href_rel];
                             out.push(InlineNode::LinkSpan {
@@ -253,9 +248,7 @@ fn parse_inline_nodes(input: &str) -> Vec<InlineNode> {
                             i = text_end + 3 + close_href_rel;
                             continue;
                         }
-                    }
                 }
-            }
 
             let mut next = advance_char_boundary(s, i);
             while next < s.len()

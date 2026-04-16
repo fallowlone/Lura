@@ -4,7 +4,6 @@
 /// runs layout, and extracts X/Y/W/H coordinates.
 ///
 /// Units: pt (points). 1mm = 2.8346pt. A4 = 595.28pt × 841.89pt.
-
 use taffy::prelude::*;
 use super::arena::{DocumentArena, NodeId as ArenaNodeId};
 use super::grid_tracks::tracks_to_taffy_components;
@@ -12,6 +11,7 @@ use super::styles::{BoxContent, BoxKind, Display, FontWeight, InlineRun, Resolve
 use super::text::{
     break_inline_runs, break_text, inline_lines_block_height, inline_runs_block_height,
     inline_runs_intrinsic_max_line_width_pt, max_word_width_across_runs, max_word_width_pt, text_block_height,
+    TextLayoutOpts,
 };
 
 // --- Constants ---
@@ -476,12 +476,14 @@ fn measure_inline_leaf(
         let h = inline_runs_block_height(
             runs,
             w,
-            styles.font_size,
-            styles.line_height,
-            styles.letter_spacing,
-            styles.word_spacing,
-            base_bold,
-            justify,
+            &TextLayoutOpts {
+                font_size_pt: styles.font_size,
+                line_height: styles.line_height,
+                letter_spacing_pt: styles.letter_spacing,
+                word_spacing_pt: styles.word_spacing,
+                base_bold,
+                justify,
+            },
         );
         return Size { width: w, height: h };
     }
@@ -515,12 +517,14 @@ fn measure_inline_leaf(
             let lines = break_inline_runs(
                 runs,
                 MEASURE_HUGE_WIDTH_PT,
-                styles.font_size,
-                styles.line_height,
-                styles.letter_spacing,
-                styles.word_spacing,
-                base_bold,
-                false,
+                &TextLayoutOpts {
+                    font_size_pt: styles.font_size,
+                    line_height: styles.line_height,
+                    letter_spacing_pt: styles.letter_spacing,
+                    word_spacing_pt: styles.word_spacing,
+                    base_bold,
+                    justify: false,
+                },
             );
             let w = lines.iter().map(|l| l.width).fold(0.0f32, f32::max).max(1.0);
             let h = inline_lines_block_height(&lines, styles.font_size, styles.line_height);
@@ -537,12 +541,14 @@ fn measure_inline_leaf(
             let h = inline_runs_block_height(
                 runs,
                 mw,
-                styles.font_size,
-                styles.line_height,
-                styles.letter_spacing,
-                styles.word_spacing,
-                base_bold,
-                justify,
+                &TextLayoutOpts {
+                    font_size_pt: styles.font_size,
+                    line_height: styles.line_height,
+                    letter_spacing_pt: styles.letter_spacing,
+                    word_spacing_pt: styles.word_spacing,
+                    base_bold,
+                    justify,
+                },
             );
             Size { width: mw, height: h }
         }
@@ -551,12 +557,14 @@ fn measure_inline_leaf(
             let h = inline_runs_block_height(
                 runs,
                 w,
-                styles.font_size,
-                styles.line_height,
-                styles.letter_spacing,
-                styles.word_spacing,
-                base_bold,
-                justify,
+                &TextLayoutOpts {
+                    font_size_pt: styles.font_size,
+                    line_height: styles.line_height,
+                    letter_spacing_pt: styles.letter_spacing,
+                    word_spacing_pt: styles.word_spacing,
+                    base_bold,
+                    justify,
+                },
             );
             Size { width: w, height: h }
         }

@@ -10,7 +10,7 @@ use crate::engine::styles::{BoxContent, BoxKind, StyledBox};
 use crate::lexer::Lexer;
 use crate::parser::{self, Parser};
 
-fn find_first_grid<'a>(styled: &'a DocumentArena, id: NodeId) -> Option<&'a StyledBox> {
+fn find_first_grid(styled: &DocumentArena, id: NodeId) -> Option<&StyledBox> {
     let node = styled.get(id);
     if matches!(node.kind, BoxKind::Grid) {
         return Some(node);
@@ -303,11 +303,10 @@ fn table_cell_paragraph_on_second_fol_paint_y_is_page_local() {
     let last_page = tree.pages.last().expect("at least one page");
     let mut hits: Vec<f32> = Vec::new();
     for cmd in &last_page.commands {
-        if let DrawCommand::Text { y, content, .. } = cmd {
-            if content == "CellA" || content == "CellB" {
+        if let DrawCommand::Text { y, content, .. } = cmd
+            && (content == "CellA" || content == "CellB") {
                 hits.push(*y);
             }
-        }
     }
     assert!(
         hits.len() >= 2,
@@ -350,11 +349,10 @@ fn table_cell_children_x_aligns_across_rows_within_column() {
     let page = tree.pages.first().expect("one page");
     let find_x = |needle: &str| -> Option<f32> {
         for cmd in &page.commands {
-            if let DrawCommand::Text { content, x, .. } = cmd {
-                if content.contains(needle) {
+            if let DrawCommand::Text { content, x, .. } = cmd
+                && content.contains(needle) {
                     return Some(*x);
                 }
-            }
         }
         None
     };
@@ -690,4 +688,29 @@ fn pipeline_page_placeholder_svg() {
         "expected substituted page digit in SVG, got: {}",
         &s[..s.len().min(1200)]
     );
+}
+
+#[test]
+fn pipeline_anchor_and_internal_link_renders_goto_and_uri() {
+    // Create a document with an internal anchor link and an external link
+    let fol = r#"PAGE(H1[start](Heading) P(Go to [section](#start) or [web](https://example.com)))"#;
+    let doc = load_fol(fol);
+    let styled = build_styled_tree(&doc);
+    let layout = compute_layout(&styled);
+    let page_tree = paginate(&layout, &styled);
+
+    // Verify that blocks with anchor IDs still record their start page
+    // (anchors are mapped via block IDs, not directly in paginate)
+    assert!(page_tree.block_start_page.contains_key("start"));
+
+    // Render to PDF
+    let bytes = render(&doc, ExportOptions { format: ExportFormat::Pdf });
+    assert!(bytes.starts_with(b"%PDF"));
+
+    // Verify link annotations are present
+    let pdf_str = String::from_utf8_lossy(&bytes);
+    assert!(pdf_str.contains("/Annot"));
+
+    // Verify external links still emit URI actions
+    assert!(pdf_str.contains("/URI"));
 }

@@ -29,7 +29,7 @@ pub enum ListStyle {
 }
 
 impl BoxKind {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "PAGE"  => BoxKind::Page,
             "H1"    => BoxKind::Heading(1),
@@ -112,9 +112,13 @@ pub struct ResolvedStyles {
     pub justify: bool,
     pub keep_together: bool,
     pub keep_with_next: bool,
-    pub widows: usize,
-    pub orphans: usize,
-    pub allow_row_split: bool,
+    /// When true, a table row is painted in place even if it overflows past
+    /// the page bottom (content is clipped at the page edge). When false
+    /// (default), the paginator forces a page break before rows that would
+    /// overflow. True row splitting — continuing cell content on the next
+    /// page — is not implemented; this flag only controls the break-vs-clip
+    /// decision for an oversized row.
+    pub allow_row_overflow: bool,
 
     /// Display type (block / grid / flex)
     pub display: Display,
@@ -180,9 +184,7 @@ impl Default for ResolvedStyles {
             justify: false,
             keep_together: false,
             keep_with_next: false,
-            widows: 2,
-            orphans: 2,
-            allow_row_split: false,
+            allow_row_overflow: false,
             display: Display::Block,
             grid_column_tracks: Vec::new(),
             column_gap: 4.0,
@@ -322,7 +324,7 @@ impl Color {
     }
 
     /// Parse strings like "#FF0000", "#FFF", "red", "black"
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim().trim_start_matches('#');
         match s {
             "black"   => return Some(Color::BLACK),

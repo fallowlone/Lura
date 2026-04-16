@@ -3,7 +3,6 @@
 /// Per node: `ResolvedStyles::default()`, then inheritable fields from the parent,
 /// then `apply_kind_defaults` (so H1/CODE defaults are not overwritten by inherited font),
 /// then explicit block attrs.
-
 use crate::parser::ast::{Block, Content, Document, InlineNode, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
 use super::grid_tracks::parse_grid_columns_value;
@@ -37,7 +36,7 @@ fn convert_block(
     arena: &mut DocumentArena,
 ) -> super::arena::NodeId {
     let block = doc.block(ast_node_id);
-    let kind = BoxKind::from_str(&block.kind);
+    let kind = BoxKind::parse(&block.kind);
 
     // Base + inheritable from parent (font-*, color, line-height, text-align).
     // Then kind defaults (H1 size/weight, CODE monospace, …) so inheritance does not erase them.
@@ -182,7 +181,7 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
                     if matches!(kind, BoxKind::Table) && s.contains(',') {
                         styles.col_aligns = s
                             .split(',')
-                            .map(|tok| parse_text_align(tok))
+                            .map(parse_text_align)
                             .collect();
                     } else {
                         let a = parse_text_align(s);
@@ -195,7 +194,7 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
                 if let Value::Str(s) = value {
                     styles.col_aligns = s
                         .split(',')
-                        .map(|tok| parse_text_align(tok))
+                        .map(parse_text_align)
                         .collect();
                 }
             }
@@ -254,19 +253,9 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
                     styles.keep_with_next = matches!(s.as_str(), "true" | "yes" | "1");
                 }
             }
-            "widows" => {
-                if let Some(v) = value_to_f32(value) {
-                    styles.widows = v.max(1.0) as usize;
-                }
-            }
-            "orphans" => {
-                if let Some(v) = value_to_f32(value) {
-                    styles.orphans = v.max(1.0) as usize;
-                }
-            }
-            "allow-row-split" => {
+            "allow-row-overflow" => {
                 if let Value::Str(s) = value {
-                    styles.allow_row_split = matches!(s.as_str(), "true" | "yes" | "1");
+                    styles.allow_row_overflow = matches!(s.as_str(), "true" | "yes" | "1");
                 }
             }
             "display" => {
@@ -343,64 +332,8 @@ fn value_to_f32(value: &Value) -> Option<f32> {
 
 fn value_to_color(value: &Value) -> Option<Color> {
     match value {
-        Value::Color(s) | Value::Str(s) => Color::from_str(s),
+        Value::Color(s) | Value::Str(s) => Color::parse(s),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::engine::arena::NodeId;
-    use crate::lexer::Lexer;
-    use crate::parser::{self, id, Parser};
-
-    fn parse_doc(input: &str) -> Document {
-        let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize();
-        let mut parser = Parser::new(tokens);
-        let doc = parser.parse().expect("parse");
-        let doc = parser::resolver::resolve(doc);
-        id::assign_ids(doc)
-    }
-
-    fn first_heading<'a>(arena: &'a DocumentArena, id: NodeId) -> Option<&'a StyledBox> {
-        let node = arena.get(id);
-        if matches!(node.kind, BoxKind::Heading(_)) {
-            return Some(node);
-        }
-        if let BoxContent::Children(children) = &node.content {
-            for &cid in children {
-                if let Some(h) = first_heading(arena, cid) {
-                    return Some(h);
-                }
-            }
-        }
-        None
-    }
-
-    #[test]
-    fn opacity_and_overflow_clip_resolve() {
-        let doc = parse_doc(r#"PAGE(P({ opacity: 0.5, overflow: clip } Hi))"#);
-        let arena = build_styled_tree(&doc);
-        let root = arena.roots[0];
-        let page = arena.get(root);
-        let p = match &page.content {
-            BoxContent::Children(ids) => arena.get(ids[0]),
-            _ => panic!("expected page with child"),
-        };
-        assert!((p.styles.opacity - 0.5).abs() < 1e-4);
-        assert!(p.styles.overflow_clip);
-    }
-
-    #[test]
-    fn h1_nested_in_page_keeps_kind_font_not_parent_body() {
-        let doc = parse_doc("PAGE(H1(Title))");
-        let arena = build_styled_tree(&doc);
-        let root = arena.roots[0];
-        let h1 = first_heading(&arena, root).expect("H1");
-        assert!((h1.styles.font_size - 14.0).abs() < f32::EPSILON);
-        assert_eq!(h1.styles.font_weight, FontWeight::Bold);
     }
 }
 
@@ -439,4 +372,60 @@ fn flatten_inline(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::arena::NodeId;
+    use crate::lexer::Lexer;
+    use crate::parser::{self, id, Parser};
+
+    fn parse_doc(input: &str) -> Document {
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        let doc = parser.parse().expect("parse");
+        let doc = parser::resolver::resolve(doc);
+        id::assign_ids(doc)
+    }
+
+    fn first_heading(arena: &DocumentArena, id: NodeId) -> Option<&StyledBox> {
+        let node = arena.get(id);
+        if matches!(node.kind, BoxKind::Heading(_)) {
+            return Some(node);
+        }
+        if let BoxContent::Children(children) = &node.content {
+            for &cid in children {
+                if let Some(h) = first_heading(arena, cid) {
+                    return Some(h);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn opacity_and_overflow_clip_resolve() {
+        let doc = parse_doc(r#"PAGE(P({ opacity: 0.5, overflow: clip } Hi))"#);
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let page = arena.get(root);
+        let p = match &page.content {
+            BoxContent::Children(ids) => arena.get(ids[0]),
+            _ => panic!("expected page with child"),
+        };
+        assert!((p.styles.opacity - 0.5).abs() < 1e-4);
+        assert!(p.styles.overflow_clip);
+    }
+
+    #[test]
+    fn h1_nested_in_page_keeps_kind_font_not_parent_body() {
+        let doc = parse_doc("PAGE(H1(Title))");
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let h1 = first_heading(&arena, root).expect("H1");
+        assert!((h1.styles.font_size - 14.0).abs() < f32::EPSILON);
+        assert_eq!(h1.styles.font_weight, FontWeight::Bold);
+    }
 }
