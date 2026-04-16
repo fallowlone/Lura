@@ -135,6 +135,23 @@ pub struct ResolvedStyles {
     pub anchor: Option<String>,
     pub page_header: Option<String>,
     pub page_footer: Option<String>,
+
+    /// CELL vertical alignment inside its row.
+    pub vertical_align: VerticalAlign,
+    /// CELL column span (number of columns consumed). Default 1.
+    pub cell_span: usize,
+    /// CELL: suppress line breaking inside this cell.
+    pub nowrap: bool,
+    /// CELL: render a single line, clip with ellipsis if it overflows the inner width.
+    pub truncate: bool,
+    /// TABLE: per-column horizontal alignment fallback used when a cell has no
+    /// explicit `align`. Empty = no per-column override.
+    pub col_aligns: Vec<TextAlign>,
+    /// Set by resolver when the block carries an explicit `text-align`/`align`
+    /// attr (single-word form). Distinguishes user-specified alignment from the
+    /// inherited/default `text_align`, which lets TABLE `col_aligns` act as a
+    /// fallback only for cells that did not opt in themselves.
+    pub explicit_text_align: Option<TextAlign>,
 }
 
 impl Default for ResolvedStyles {
@@ -176,6 +193,12 @@ impl Default for ResolvedStyles {
             anchor: None,
             page_header: None,
             page_footer: None,
+            vertical_align: VerticalAlign::Top,
+            cell_span: 1,
+            nowrap: false,
+            truncate: false,
+            col_aligns: Vec::new(),
+            explicit_text_align: None,
         }
     }
 }
@@ -368,6 +391,13 @@ pub enum TextAlign {
     Center,
     Right,
     Justify,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VerticalAlign {
+    Top,
+    Middle,
+    Bottom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

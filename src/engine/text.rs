@@ -434,20 +434,27 @@ pub fn break_text(
 
     let mut lines = Vec::new();
     let mut current_line = String::new();
-    let mut current_width = 0.0f32;
     let mut last_pos = 0usize;
 
     for (pos, opportunity) in &break_opportunities {
         let segment = &text[last_pos..*pos];
-        let segment_width = text_width_pt_with_spacing(
-            segment,
+
+        // Tentatively add segment to current line
+        let tentative = if current_line.is_empty() {
+            segment.to_string()
+        } else {
+            format!("{}{}", current_line, segment)
+        };
+        let tentative_width = text_width_pt_with_spacing(
+            tentative.trim_end(),
             font_size_pt,
             bold,
             letter_spacing_pt,
             word_spacing_pt,
         );
 
-        if current_width + segment_width > max_width_pt && !current_line.is_empty() {
+        // If adding this segment exceeds max width, finalize current line first
+        if tentative_width > max_width_pt && !current_line.is_empty() {
             let w = text_width_pt_with_spacing(
                 current_line.trim_end(),
                 font_size_pt,
@@ -462,11 +469,9 @@ pub fn break_text(
                 font_size: font_size_pt,
             });
             current_line = String::new();
-            current_width = 0.0;
         }
 
         current_line.push_str(segment);
-        current_width += segment_width;
 
         if *opportunity == unicode_linebreak::BreakOpportunity::Mandatory {
             let w = text_width_pt_with_spacing(
@@ -483,7 +488,6 @@ pub fn break_text(
                 font_size: font_size_pt,
             });
             current_line = String::new();
-            current_width = 0.0;
         }
 
         last_pos = *pos;
@@ -655,6 +659,9 @@ pub struct InlineLine {
     pub width: f32,
     pub line_height_pt: f32,
     pub font_size: f32,
+    /// Full line text (all fragments concatenated). Used for accurate shaping/rendering
+    /// to avoid micro-gaps from per-fragment PDF text operators.
+    pub full_text: String,
 }
 
 pub fn break_inline_runs(
@@ -673,6 +680,7 @@ pub fn break_inline_runs(
         width: 0.0,
         line_height_pt: font_size_pt * line_height,
         font_size: font_size_pt,
+        full_text: String::new(),
     };
 
     for run in runs {
@@ -706,12 +714,15 @@ pub fn break_inline_runs(
                 && !part.trim().is_empty();
 
             if should_wrap {
+                // Compute full_text for the completed line
+                current.full_text = current.fragments.iter().map(|f| f.text.as_str()).collect();
                 lines.push(current);
                 current = InlineLine {
                     fragments: Vec::new(),
                     width: 0.0,
                     line_height_pt: font_size_pt * line_height,
                     font_size: font_size_pt,
+                    full_text: String::new(),
                 };
             }
 
@@ -728,6 +739,7 @@ pub fn break_inline_runs(
     }
 
     if !current.fragments.is_empty() {
+        current.full_text = current.fragments.iter().map(|f| f.text.as_str()).collect();
         lines.push(current);
     }
 

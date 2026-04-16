@@ -9,7 +9,7 @@ use super::arena::DocumentArena;
 use super::grid_tracks::parse_grid_columns_value;
 use super::styles::{
     BoxContent, BoxKind, Color, Display, EdgeInsets, FloatMode, FontStyle, FontWeight, InlineRun,
-    ListStyle, ResolvedStyles, StyledBox, TextAlign,
+    ListStyle, ResolvedStyles, StyledBox, TextAlign, VerticalAlign,
 };
 
 /// Main entry point.
@@ -48,7 +48,7 @@ fn convert_block(
     styles.apply_kind_defaults(&kind);
 
     // Apply explicit block attrs (override defaults and inheritance)
-    apply_attrs(&mut styles, block);
+    apply_attrs(&mut styles, block, &kind);
 
     // Convert content
     let content = match &block.content {
@@ -91,8 +91,17 @@ fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.text_align = parent.text_align;
 }
 
+fn parse_text_align(s: &str) -> TextAlign {
+    match s.trim() {
+        "center" | "c"         => TextAlign::Center,
+        "right"  | "r" | "end" => TextAlign::Right,
+        "justify" | "j"        => TextAlign::Justify,
+        _                      => TextAlign::Left,
+    }
+}
+
 /// Applies explicit block attrs on top of accumulated styles.
-fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
+fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
     for (key, value) in &block.attrs {
         match key.as_str() {
             "font-size" => {
@@ -168,12 +177,54 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block) {
             }
             "text-align" | "align" => {
                 if let Value::Str(s) = value {
-                    styles.text_align = match s.as_str() {
-                        "center"  => TextAlign::Center,
-                        "right"   => TextAlign::Right,
-                        "justify" => TextAlign::Justify,
-                        _         => TextAlign::Left,
+                    // TABLE `{align: "left,center,right"}` sets per-column fallbacks.
+                    // Any other block (or single-word TABLE `align`) sets `text_align`.
+                    if matches!(kind, BoxKind::Table) && s.contains(',') {
+                        styles.col_aligns = s
+                            .split(',')
+                            .map(|tok| parse_text_align(tok))
+                            .collect();
+                    } else {
+                        let a = parse_text_align(s);
+                        styles.text_align = a;
+                        styles.explicit_text_align = Some(a);
+                    }
+                }
+            }
+            "col-align" | "column-align" => {
+                if let Value::Str(s) = value {
+                    styles.col_aligns = s
+                        .split(',')
+                        .map(|tok| parse_text_align(tok))
+                        .collect();
+                }
+            }
+            "valign" | "vertical-align" => {
+                if let Value::Str(s) = value {
+                    styles.vertical_align = match s.as_str() {
+                        "middle" | "center" | "m" => VerticalAlign::Middle,
+                        "bottom" | "b"            => VerticalAlign::Bottom,
+                        _                         => VerticalAlign::Top,
                     };
+                }
+            }
+            "span" | "colspan" | "col-span" => {
+                if let Some(v) = value_to_f32(value) {
+                    styles.cell_span = (v as usize).max(1);
+                }
+            }
+            "nowrap" | "no-wrap" => {
+                match value {
+                    Value::Str(s) => styles.nowrap = matches!(s.as_str(), "true" | "yes" | "1"),
+                    Value::Number(n) => styles.nowrap = *n > 0.0,
+                    _ => styles.nowrap = true,
+                }
+            }
+            "truncate" | "ellipsis" => {
+                match value {
+                    Value::Str(s) => styles.truncate = matches!(s.as_str(), "true" | "yes" | "1"),
+                    Value::Number(n) => styles.truncate = *n > 0.0,
+                    _ => styles.truncate = true,
                 }
             }
             "letter-spacing" => {
