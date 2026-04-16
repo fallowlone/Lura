@@ -11,7 +11,8 @@ use super::layout::{
 };
 use super::styles::{BoxKind, Color, FloatMode, FontStyle, FontWeight, InlineRun, ListStyle};
 use super::text::{
-    break_inline_runs, break_text, inline_lines_block_height, inline_runs_block_height, text_block_height,
+    break_inline_runs, break_text, inline_lines_block_height, inline_runs_block_height,
+    text_block_height, InlineLine, TextLine,
 };
 
 // --- Draw commands ---
@@ -115,6 +116,12 @@ struct Paginator<'a> {
     list_item_counter: Option<usize>,
     page_header: Option<String>,
     page_footer: Option<String>,
+    /// Pending block IDs awaiting first draw. Flushed to `block_start_page`
+    /// on the next `push_cmd`, so a block records the page where its first
+    /// paint lands (not the page where `place_node` entered).
+    pending_block_starts: Vec<String>,
+    /// Opacity stack for cross-page rebalancing inside `new_page`.
+    active_opacity: Vec<f32>,
 }
 
 impl<'a> Paginator<'a> {
@@ -128,26 +135,68 @@ impl<'a> Paginator<'a> {
             list_item_counter: None,
             page_header: None,
             page_footer: None,
+            pending_block_starts: Vec::new(),
+            active_opacity: Vec::new(),
         }
     }
 
-    fn record_block_start(&mut self, arena_id: super::arena::NodeId) {
+    /// Queue a block to record its start page when its first draw lands.
+    fn queue_block_start(&mut self, arena_id: super::arena::NodeId) {
         let id = self.styled.get(arena_id).id.clone();
-        if id.is_empty() {
+        if id.is_empty() || self.block_start_page.contains_key(&id) {
+            return;
+        }
+        self.pending_block_starts.push(id);
+    }
+
+    fn flush_pending_block_starts(&mut self) {
+        if self.pending_block_starts.is_empty() {
             return;
         }
         let page_1based = self.pages.len() as u32;
-        self.block_start_page.entry(id).or_insert(page_1based);
+        for id in self.pending_block_starts.drain(..) {
+            self.block_start_page.entry(id).or_insert(page_1based);
+        }
     }
 
     fn new_page(&mut self) {
+        // Close cross-page wraps on old page.
+        for _ in &self.active_opacity {
+            self.pages
+                .last_mut()
+                .expect("at least one page exists")
+                .commands
+                .push(DrawCommand::PopOpacity);
+        }
         self.pages.push(Page::new());
         self.cursor_y = CONTENT_TOP;
         self.draw_page_chrome();
+        // Re-open wraps on new page.
+        let alphas = self.active_opacity.clone();
+        for alpha in alphas {
+            self.pages
+                .last_mut()
+                .expect("at least one page exists")
+                .commands
+                .push(DrawCommand::PushOpacity { alpha });
+        }
     }
 
     fn push_cmd(&mut self, cmd: DrawCommand) {
-        self.pages.last_mut().unwrap().commands.push(cmd);
+        // Painting command → block's first visible location is now fixed.
+        self.flush_pending_block_starts();
+        match &cmd {
+            DrawCommand::PushOpacity { alpha } => self.active_opacity.push(*alpha),
+            DrawCommand::PopOpacity => {
+                self.active_opacity.pop();
+            }
+            _ => {}
+        }
+        self.pages
+            .last_mut()
+            .expect("at least one page exists")
+            .commands
+            .push(cmd);
     }
 
     /// Placeholder height for `FIGURE` / `IMAGE` until raster decode exists.
@@ -228,7 +277,7 @@ impl<'a> Paginator<'a> {
 
     fn place_node(&mut self, node_idx: LayoutNodeIdx) -> f32 {
         let node = self.layout.nodes[node_idx].clone();
-        self.record_block_start(node.arena_id);
+        self.queue_block_start(node.arena_id);
         let styles = self.styled.get(node.arena_id).styles.clone();
         let bold = styles.font_weight == FontWeight::Bold;
         let margin_top = styles.margin.top * MM_TO_PT;
@@ -260,15 +309,21 @@ impl<'a> Paginator<'a> {
                 LayoutContent::Text(_) | LayoutContent::Inline(_)
             ) {
                 let estimated_h = self.estimate_height(node_idx);
-                self.push_cmd(DrawCommand::Rect {
-                    x: block_x,
-                    y: self.cursor_y,
-                    w: node.width.max(1.0),
-                    h: estimated_h,
-                    fill: Some(bg),
-                    stroke: None,
-                    stroke_width: 0.0,
-                });
+                // Known limitation: container-level background only covers the first
+                // page segment. Multi-page containers that cross a page boundary
+                // skip the bg rect to avoid an orphan rect hanging off the page.
+                let remaining = (CONTENT_BOTTOM - self.cursor_y).max(0.0);
+                if estimated_h <= remaining + 0.5 {
+                    self.push_cmd(DrawCommand::Rect {
+                        x: block_x,
+                        y: self.cursor_y,
+                        w: node.width.max(1.0),
+                        h: estimated_h,
+                        fill: Some(bg),
+                        stroke: None,
+                        stroke_width: 0.0,
+                    });
+                }
             }
         }
 
@@ -299,44 +354,14 @@ impl<'a> Paginator<'a> {
                         styles.letter_spacing,
                         styles.word_spacing,
                     );
-                    let block_h = text_block_height(&lines);
-
-                    if self.cursor_y + block_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
-                        self.new_page();
-                    }
-
-                    if let Some(bg) = styles.background {
-                        self.push_cmd(DrawCommand::Rect {
-                            x: block_x,
-                            y: self.cursor_y,
-                            w: node.width.max(1.0),
-                            h: block_h,
-                            fill: Some(bg),
-                            stroke: None,
-                            stroke_width: 0.0,
-                        });
-                    }
-
-                    for (i, line) in lines.iter().enumerate() {
-                        let y = self.cursor_y + styles.font_size + i as f32 * line.line_height_pt;
-                        if y > CONTENT_BOTTOM {
-                            break;
-                        }
-                        self.push_cmd(DrawCommand::Text {
-                            content: line.text.clone(),
-                            x: block_x + padding_left,
-                            y,
-                            font_size: styles.font_size,
-                            font_family: styles.font_family.clone(),
-                            bold,
-                            italic: styles.font_style == FontStyle::Italic,
-                            color: styles.color,
-                            link_uri: None,
-                            link_width_pt: None,
-                        });
-                    }
-                    self.cursor_y += block_h;
-                    block_h
+                    self.paint_text_lines_paginated(
+                        &lines,
+                        block_x,
+                        node.width,
+                        padding_left,
+                        &styles,
+                        bold,
+                    )
                 }
             }
             LayoutContent::Inline(runs) => {
@@ -352,70 +377,14 @@ impl<'a> Paginator<'a> {
                     bold,
                     justify,
                 );
-                let block_h = inline_lines_block_height(&lines, styles.font_size, styles.line_height);
-
-                if self.cursor_y + block_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
-                    self.new_page();
-                }
-
-                if let Some(bg) = styles.background {
-                    self.push_cmd(DrawCommand::Rect {
-                        x: block_x,
-                        y: self.cursor_y,
-                        w: node.width.max(1.0),
-                        h: block_h,
-                        fill: Some(bg),
-                        stroke: None,
-                        stroke_width: 0.0,
-                    });
-                }
-
-                for (line_idx, line) in lines.iter().enumerate() {
-                    let baseline_y =
-                        self.cursor_y + styles.font_size + line_idx as f32 * line.line_height_pt;
-                    if baseline_y > CONTENT_BOTTOM {
-                        break;
-                    }
-                    let mut x_cursor = block_x + padding_left;
-                    for frag in &line.fragments {
-                        let frag_font_family = if frag.code {
-                            "Courier".to_string()
-                        } else {
-                            styles.font_family.clone()
-                        };
-                        self.push_cmd(DrawCommand::Text {
-                            content: frag.text.clone(),
-                            x: x_cursor,
-                            y: baseline_y,
-                            font_size: styles.font_size,
-                            font_family: frag_font_family,
-                            bold: bold || frag.bold,
-                            italic: (styles.font_style == FontStyle::Italic) || frag.italic,
-                            color: if frag.link.is_some() {
-                                Color::from_hex(0x1D4ED8)
-                            } else {
-                                styles.color
-                            },
-                            link_uri: frag.link.clone(),
-                            link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                        });
-                        if frag.link.is_some() && !frag.text.trim().is_empty() {
-                            let underline_y = baseline_y + 1.0;
-                            self.push_cmd(DrawCommand::Line {
-                                x1: x_cursor,
-                                y1: underline_y,
-                                x2: x_cursor + frag.width.max(0.0),
-                                y2: underline_y,
-                                color: Color::from_hex(0x1D4ED8),
-                                width: 0.5,
-                            });
-                        }
-                        x_cursor += frag.width;
-                    }
-                }
-
-                self.cursor_y += block_h;
-                block_h
+                self.paint_inline_lines_paginated(
+                    &lines,
+                    block_x,
+                    node.width,
+                    padding_left,
+                    &styles,
+                    bold,
+                )
             }
 
             // --- Container ---
@@ -477,6 +446,159 @@ impl<'a> Paginator<'a> {
 
         self.cursor_y += margin_bottom;
         consumed + margin_top + margin_bottom
+    }
+
+    // ─── Multi-page text painting ─────────────────────────────────────────────
+
+    /// Split `lines` into page-sized segments and paint each segment with its own
+    /// background rect, issuing `new_page` between segments. Returns the total
+    /// visual height consumed (sum of per-page segment heights).
+    fn paint_text_lines_paginated(
+        &mut self,
+        lines: &[TextLine],
+        block_x: f32,
+        width_bb: f32,
+        padding_left: f32,
+        styles: &super::styles::ResolvedStyles,
+        bold: bool,
+    ) -> f32 {
+        if lines.is_empty() {
+            return 0.0;
+        }
+        let segments = self.compute_line_segments(lines.iter().map(|l| l.line_height_pt));
+        let italic = styles.font_style == FontStyle::Italic;
+        let mut total = 0.0f32;
+        for (idx, (a, b)) in segments.iter().enumerate() {
+            if idx > 0 {
+                self.new_page();
+            }
+            let seg_top = self.cursor_y;
+            let seg_h: f32 = lines[*a..*b].iter().map(|l| l.line_height_pt).sum();
+            if let Some(bg) = styles.background {
+                self.push_cmd(DrawCommand::Rect {
+                    x: block_x,
+                    y: seg_top,
+                    w: width_bb.max(1.0),
+                    h: seg_h,
+                    fill: Some(bg),
+                    stroke: None,
+                    stroke_width: 0.0,
+                });
+            }
+            for (k, line) in lines[*a..*b].iter().enumerate() {
+                let y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
+                self.push_cmd(DrawCommand::Text {
+                    content: line.text.clone(),
+                    x: block_x + padding_left,
+                    y,
+                    font_size: styles.font_size,
+                    font_family: styles.font_family.clone(),
+                    bold,
+                    italic,
+                    color: styles.color,
+                    link_uri: None,
+                    link_width_pt: None,
+                });
+            }
+            self.cursor_y = seg_top + seg_h;
+            total += seg_h;
+        }
+        total
+    }
+
+    fn paint_inline_lines_paginated(
+        &mut self,
+        lines: &[InlineLine],
+        block_x: f32,
+        width_bb: f32,
+        padding_left: f32,
+        styles: &super::styles::ResolvedStyles,
+        bold: bool,
+    ) -> f32 {
+        if lines.is_empty() {
+            return 0.0;
+        }
+        let segments = self.compute_line_segments(lines.iter().map(|l| l.line_height_pt));
+        let italic_base = styles.font_style == FontStyle::Italic;
+        let mut total = 0.0f32;
+        for (idx, (a, b)) in segments.iter().enumerate() {
+            if idx > 0 {
+                self.new_page();
+            }
+            let seg_top = self.cursor_y;
+            let seg_h: f32 = lines[*a..*b].iter().map(|l| l.line_height_pt).sum();
+            if let Some(bg) = styles.background {
+                self.push_cmd(DrawCommand::Rect {
+                    x: block_x,
+                    y: seg_top,
+                    w: width_bb.max(1.0),
+                    h: seg_h,
+                    fill: Some(bg),
+                    stroke: None,
+                    stroke_width: 0.0,
+                });
+            }
+            for (k, line) in lines[*a..*b].iter().enumerate() {
+                let baseline_y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
+                // Render each line as a single Text command to avoid micro-gaps.
+                let first = line.fragments.first();
+                let font_family = if first.map_or(false, |f| f.code) {
+                    "Courier".to_string()
+                } else {
+                    styles.font_family.clone()
+                };
+                let group_bold = first.map_or(bold, |f| bold || f.bold);
+                let group_italic = italic_base || first.map_or(false, |f| f.italic);
+                let (link_uri, link_width_pt) = line
+                    .fragments
+                    .iter()
+                    .find(|f| f.link.is_some())
+                    .map(|f| (f.link.clone(), Some(f.width)))
+                    .unwrap_or((None, None));
+                let group_color = if link_uri.is_some() {
+                    Color::from_hex(0x1D4ED8)
+                } else {
+                    styles.color
+                };
+                self.push_cmd(DrawCommand::Text {
+                    content: line.full_text.clone(),
+                    x: block_x + padding_left,
+                    y: baseline_y,
+                    font_size: styles.font_size,
+                    font_family,
+                    bold: group_bold,
+                    italic: group_italic,
+                    color: group_color,
+                    link_uri,
+                    link_width_pt,
+                });
+            }
+            self.cursor_y = seg_top + seg_h;
+            total += seg_h;
+        }
+        total
+    }
+
+    /// Given a sequence of per-line heights, compute (start_idx, end_idx) segment
+    /// ranges so each segment fits between the current cursor_y (for the first
+    /// segment) or CONTENT_TOP (for subsequent segments) and CONTENT_BOTTOM.
+    /// A segment never starts empty; lines that exceed a full page are placed
+    /// alone on a page (inevitable overflow).
+    fn compute_line_segments<I: Iterator<Item = f32>>(&self, heights: I) -> Vec<(usize, usize)> {
+        let heights: Vec<f32> = heights.collect();
+        let mut segments: Vec<(usize, usize)> = Vec::new();
+        let mut seg_start = 0usize;
+        let mut sim_y = self.cursor_y;
+        for (i, &h) in heights.iter().enumerate() {
+            if sim_y + h > CONTENT_BOTTOM && sim_y > CONTENT_TOP && i > seg_start {
+                segments.push((seg_start, i));
+                seg_start = i;
+                sim_y = CONTENT_TOP;
+            }
+            sim_y += h;
+        }
+        segments.push((seg_start, heights.len()));
+        segments
     }
 
     // --- List item with bullet ---
@@ -672,6 +794,21 @@ impl<'a> Paginator<'a> {
             if row_cells.is_empty() {
                 continue;
             }
+
+            // Row page-break: if max cell height doesn't fit in remaining page,
+            // break before the row. Uses `estimate_height` (taffy layout height as
+            // fallback) to keep a row intact across page boundaries.
+            let row_est_h = row_cells
+                .iter()
+                .map(|&ci| {
+                    let h_est = self.estimate_height(ci);
+                    h_est.max(self.layout.nodes[ci].height)
+                })
+                .fold(0.0f32, f32::max);
+            if self.cursor_y + row_est_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
+                self.new_page();
+            }
+
             let row_start_y = self.cursor_y;
             let row_min_y = row_cells
                 .iter()
@@ -704,20 +841,45 @@ impl<'a> Paginator<'a> {
         let table_x = table_node.x;
         let table_w = table_node.width.max(1.0);
 
-        // Line above first table row
-        self.push_cmd(DrawCommand::Line {
-            x1: table_x,
-            y1: self.cursor_y,
-            x2: table_x + table_w,
-            y2: self.cursor_y,
-            color: Color::from_hex(0xCCCCCC),
-            width: 0.5,
-        });
+        // Pre-calculate column widths: find the max cell width at each column index across all rows
+        let num_cols = row_indices
+            .iter()
+            .map(|&ri| {
+                match &self.layout.nodes[ri].content {
+                    LayoutContent::Children(cells) => cells.len(),
+                    _ => 0,
+                }
+            })
+            .max()
+            .unwrap_or(0);
+
+        let col_widths = if num_cols == 0 {
+            vec![]
+        } else {
+            let mut widths = vec![0.0f32; num_cols];
+            for &row_idx in &row_indices {
+                let cell_indices = match &self.layout.nodes[row_idx].content {
+                    LayoutContent::Children(cells) => cells.clone(),
+                    _ => vec![],
+                };
+                for (col_idx, &cell_idx) in cell_indices.iter().enumerate() {
+                    if col_idx < num_cols {
+                        widths[col_idx] = widths[col_idx].max(self.layout.nodes[cell_idx].width);
+                    }
+                }
+            }
+            // Normalize to table width if there's slack
+            let total: f32 = widths.iter().sum();
+            if total > 0.0 && (total - table_w).abs() > 0.5 {
+                let scale = table_w / total;
+                widths.iter_mut().for_each(|w| *w *= scale);
+            }
+            widths
+        };
 
         for (row_num, row_idx) in row_indices.into_iter().enumerate() {
             let row_node = self.layout.nodes[row_idx].clone();
             let row_styles = self.styled.get(row_node.arena_id).styles.clone();
-            let row_start_y = self.cursor_y;
 
             let cell_indices = match &row_node.content {
                 LayoutContent::Children(cells) => cells.clone(),
@@ -733,17 +895,20 @@ impl<'a> Paginator<'a> {
                 .map(|&ci| self.layout.nodes[ci].y)
                 .fold(f32::INFINITY, f32::min);
 
-            // Row height = max over cells
+            // Row height = max over cells (use pre-calculated column widths for text wrapping)
             let row_height = cell_indices
                 .iter()
-                .map(|&ci| {
+                .enumerate()
+                .map(|(col_idx, &ci)| {
                     let cell = &self.layout.nodes[ci];
                     let cell_styles = self.styled.get(cell.arena_id).styles.clone();
                     let bold = cell_styles.font_weight == FontWeight::Bold;
+                    // Use pre-calculated column width for consistent text wrapping
+                    let cell_w = col_widths.get(col_idx).copied().unwrap_or_else(|| cell.width).max(1.0);
                     match &cell.content {
                         LayoutContent::Text(t) => {
                             let w = text_container_width_pt(
-                                cell.width,
+                                cell_w,
                                 cell_styles.padding.left,
                                 cell_styles.padding.right,
                             );
@@ -762,7 +927,7 @@ impl<'a> Paginator<'a> {
                         }
                         LayoutContent::Inline(runs) => {
                             let w = text_container_width_pt(
-                                cell.width,
+                                cell_w,
                                 cell_styles.padding.left,
                                 cell_styles.padding.right,
                             );
@@ -794,11 +959,28 @@ impl<'a> Paginator<'a> {
                 .fold(0.0f32, f32::max)
                 .max(12.0);
 
+            let page_before_break = self.pages.len();
             if !row_styles.allow_row_split
                 && self.cursor_y + row_height > CONTENT_BOTTOM
                 && self.cursor_y > CONTENT_TOP
             {
                 self.new_page();
+            }
+            let row_start_y = self.cursor_y;
+
+            // Top border line: drawn before first row, or again after a page break
+            // to give the continuation a visible top edge. This replaces the
+            // previous outer-border rect which could not span multiple pages.
+            let is_first_row_on_page = row_num == 0 || self.pages.len() > page_before_break;
+            if is_first_row_on_page {
+                self.push_cmd(DrawCommand::Line {
+                    x1: table_x,
+                    y1: row_start_y,
+                    x2: table_x + table_w,
+                    y2: row_start_y,
+                    color: Color::from_hex(0xCCCCCC),
+                    width: 0.5,
+                });
             }
 
             // Row background: explicit row color OR default header tint
@@ -823,13 +1005,18 @@ impl<'a> Paginator<'a> {
             }
 
             // Row cells
-            for &cell_idx in &cell_indices {
+            // Compute cumulative x positions based on pre-calculated column widths
+            let mut cell_x = table_x;
+            for (col_idx, &cell_idx) in cell_indices.iter().enumerate() {
                 let cell = self.layout.nodes[cell_idx].clone();
                 let cell_styles = self.styled.get(cell.arena_id).styles.clone();
                 let bold = cell_styles.font_weight == FontWeight::Bold;
                 let padding_top = cell_styles.padding.top * MM_TO_PT;
                 let _padding_bottom = cell_styles.padding.bottom * MM_TO_PT;
                 let padding_left = cell_styles.padding.left * MM_TO_PT;
+
+                // Use pre-calculated column width for this column
+                let cell_w = col_widths.get(col_idx).copied().unwrap_or_else(|| cell.width).max(1.0);
 
                 // Top-align cell content so the first text baseline lines up across columns in the
                 // same row (vertical centering per cell made multi-line vs single-line cells ragged).
@@ -839,9 +1026,9 @@ impl<'a> Paginator<'a> {
                 // Per-cell background
                 if let Some(cell_bg) = cell_styles.background {
                     self.push_cmd(DrawCommand::Rect {
-                        x: cell.x,
+                        x: cell_x,
                         y: row_start_y,
-                        w: cell.width.max(1.0),
+                        w: cell_w,
                         h: row_height,
                         fill: Some(cell_bg),
                         stroke: None,
@@ -852,7 +1039,7 @@ impl<'a> Paginator<'a> {
                 match &cell.content {
                     LayoutContent::Text(text) => {
                         let w = text_container_width_pt(
-                            cell.width,
+                            cell_w,
                             cell_styles.padding.left,
                             cell_styles.padding.right,
                         );
@@ -874,7 +1061,7 @@ impl<'a> Paginator<'a> {
                             }
                             self.push_cmd(DrawCommand::Text {
                                 content: line.text.clone(),
-                                x: cell.x + padding_left,
+                                x: cell_x + padding_left,
                                 y,
                                 font_size: cell_styles.font_size,
                                 font_family: cell_styles.font_family.clone(),
@@ -888,7 +1075,7 @@ impl<'a> Paginator<'a> {
                     }
                     LayoutContent::Inline(runs) => {
                         let w = text_container_width_pt(
-                            cell.width,
+                            cell_w,
                             cell_styles.padding.left,
                             cell_styles.padding.right,
                         );
@@ -911,7 +1098,7 @@ impl<'a> Paginator<'a> {
                             if baseline_y > CONTENT_BOTTOM {
                                 break;
                             }
-                            let mut x_cursor = cell.x + padding_left;
+                            let mut x_cursor = cell_x + padding_left;
                             for frag in &line.fragments {
                                 let font_family = if frag.code {
                                     "Courier".to_string()
@@ -954,37 +1141,15 @@ impl<'a> Paginator<'a> {
                             let m_top = child_styles.margin.top * MM_TO_PT;
                             let rel_y = child.y - children_min_y;
                             self.cursor_y = content_top + rel_y - m_top;
-                            // #region agent log
-                            {
-                                use std::io::Write;
-                                let ts = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_millis())
-                                    .unwrap_or(0);
-                                if let Ok(mut f) = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open("/Users/artemmac/programming/personal/lura/.cursor/debug-8cc234.log")
-                                {
-                                    let _ = writeln!(
-                                        f,
-                                        r#"{{"sessionId":"8cc234","hypothesisId":"H1","location":"paginate.rs:place_table:Children","message":"table_cell_child_cursor","data":{{"content_top":{},"child_y":{},"children_min_y":{},"rel_y":{},"cursor_before_margin":{}}},"timestamp":{}}}"#,
-                                        content_top,
-                                        child.y,
-                                        children_min_y,
-                                        rel_y,
-                                        content_top + rel_y - m_top,
-                                        ts
-                                    );
-                                }
-                            }
-                            // #endregion
                             self.place_node(child_idx);
                         }
                         self.cursor_y = cursor_before_cell;
                     }
                     LayoutContent::Empty => {}
                 }
+
+                // Advance cell_x for next column
+                cell_x += cell_w;
             }
 
             self.cursor_y += row_height;
@@ -1000,19 +1165,9 @@ impl<'a> Paginator<'a> {
             });
         }
 
-        // Table border
-        let total_h = self.cursor_y - table_start_y;
-        self.push_cmd(DrawCommand::Rect {
-            x: table_x,
-            y: table_start_y,
-            w: table_w,
-            h: total_h,
-            fill: None,
-            stroke: Some(Color::from_hex(0xCCCCCC)),
-            stroke_width: 0.5,
-        });
-
-        total_h
+        // No outer border rect: it cannot span multiple pages. Per-row separator
+        // lines and the per-row top border already delimit the table visually.
+        self.cursor_y - table_start_y
     }
 
     // --- Block height estimate (background rects) ---
@@ -1461,6 +1616,306 @@ mod tests {
         assert!(
             has_feature_text,
             "table cell content from LayoutContent::Children must render text"
+        );
+    }
+
+    /// Long paragraph whose total height exceeds one content column must split
+    /// its lines across multiple pages instead of dropping them silently.
+    #[test]
+    fn long_paragraph_splits_lines_across_pages() {
+        let mut arena = DocumentArena::new();
+
+        // At 10pt font with default line-height, ~60 lines fit per page.
+        // 3000 short words wraps to many more than that.
+        let text = "word ".repeat(3000);
+        let p_id = arena.alloc(StyledBox {
+            id: "p-long".to_string(),
+            kind: BoxKind::Paragraph,
+            styles: ResolvedStyles::for_kind(&BoxKind::Paragraph),
+            content: BoxContent::Text(text.clone()),
+        });
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![p_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 2000.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: p_id,
+                    kind: BoxKind::Paragraph,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 2000.0,
+                    content: LayoutContent::Text(text),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        assert!(
+            pages.pages.len() >= 2,
+            "long paragraph must span at least 2 pages, got {}",
+            pages.pages.len()
+        );
+        for (i, page) in pages.pages.iter().enumerate() {
+            let has_text = page
+                .commands
+                .iter()
+                .any(|c| matches!(c, DrawCommand::Text { .. }));
+            assert!(has_text, "page {} must contain at least one Text cmd", i + 1);
+        }
+    }
+
+    /// `block_start_page` must record the page where a block's first draw lands,
+    /// not the page where `place_node` entered.
+    #[test]
+    fn block_start_page_records_after_page_break() {
+        let mut arena = DocumentArena::new();
+
+        // Filler paragraph to push cursor down so the next one breaks.
+        let filler_text = "line ".repeat(3000);
+        let filler_id = arena.alloc(StyledBox {
+            id: "p-filler".to_string(),
+            kind: BoxKind::Paragraph,
+            styles: ResolvedStyles::for_kind(&BoxKind::Paragraph),
+            content: BoxContent::Text(filler_text.clone()),
+        });
+        let target_id = arena.alloc(StyledBox {
+            id: "p-target".to_string(),
+            kind: BoxKind::Paragraph,
+            styles: ResolvedStyles::for_kind(&BoxKind::Paragraph),
+            content: BoxContent::Text("target".to_string()),
+        });
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![filler_id, target_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 3000.0,
+                    content: LayoutContent::Children(vec![1, 2]),
+                },
+                LayoutBox {
+                    arena_id: filler_id,
+                    kind: BoxKind::Paragraph,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 2500.0,
+                    content: LayoutContent::Text(filler_text),
+                },
+                LayoutBox {
+                    arena_id: target_id,
+                    kind: BoxKind::Paragraph,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT + 2500.0,
+                    width: CONTENT_WIDTH_PT,
+                    height: 20.0,
+                    content: LayoutContent::Text("target".to_string()),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        assert!(pages.pages.len() >= 2, "expected multi-page output");
+        let target_page = pages
+            .block_start_page
+            .get("p-target")
+            .copied()
+            .expect("block_start_page must contain p-target");
+        // Find which page actually contains "target" text
+        let drawn_on = pages
+            .pages
+            .iter()
+            .enumerate()
+            .find_map(|(i, pg)| {
+                pg.commands.iter().find_map(|c| match c {
+                    DrawCommand::Text { content, .. } if content.contains("target") => Some(i as u32 + 1),
+                    _ => None,
+                })
+            })
+            .expect("target text must be drawn somewhere");
+        assert_eq!(
+            target_page, drawn_on,
+            "block_start_page ({target_page}) must match page where text is drawn ({drawn_on})"
+        );
+    }
+
+    /// `new_page` must rebalance the opacity stack: pop on old page, push on new.
+    #[test]
+    fn new_page_rebalances_active_opacity() {
+        let mut arena = DocumentArena::new();
+
+        let mut p_styles = ResolvedStyles::for_kind(&BoxKind::Paragraph);
+        p_styles.opacity = 0.5;
+        let text = "word ".repeat(3000);
+        let p_id = arena.alloc(StyledBox {
+            id: "p-opa".to_string(),
+            kind: BoxKind::Paragraph,
+            styles: p_styles,
+            content: BoxContent::Text(text.clone()),
+        });
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![p_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 3000.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: p_id,
+                    kind: BoxKind::Paragraph,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 3000.0,
+                    content: LayoutContent::Text(text),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        assert!(pages.pages.len() >= 2);
+        for (i, page) in pages.pages.iter().enumerate() {
+            let pushes = page
+                .commands
+                .iter()
+                .filter(|c| matches!(c, DrawCommand::PushOpacity { .. }))
+                .count();
+            let pops = page
+                .commands
+                .iter()
+                .filter(|c| matches!(c, DrawCommand::PopOpacity))
+                .count();
+            assert_eq!(
+                pushes, pops,
+                "page {}: PushOpacity/PopOpacity count mismatch: {pushes}/{pops}",
+                i + 1
+            );
+        }
+    }
+
+    /// Grid with rows that exceed page capacity must break between rows.
+    #[test]
+    fn grid_breaks_between_rows_when_remaining_space_insufficient() {
+        let mut arena = DocumentArena::new();
+
+        // Tall cell content via explicit height so estimate_height exceeds page.
+        let mut tall_cell_styles = ResolvedStyles::for_kind(&BoxKind::Cell);
+        tall_cell_styles.height = Some(250.0); // 250mm ≈ 708pt — well over page
+        let mk_cell = |arena: &mut DocumentArena, styles: ResolvedStyles, id: &str| {
+            arena.alloc(StyledBox {
+                id: id.to_string(),
+                kind: BoxKind::Cell,
+                styles,
+                content: BoxContent::Text(format!("cell-{id}")),
+            })
+        };
+
+        let c1 = mk_cell(&mut arena, tall_cell_styles.clone(), "a");
+        let c2 = mk_cell(&mut arena, tall_cell_styles.clone(), "b");
+        let grid_id = arena.alloc(StyledBox {
+            id: "g".to_string(),
+            kind: BoxKind::Grid,
+            styles: ResolvedStyles::for_kind(&BoxKind::Grid),
+            content: BoxContent::Children(vec![c1, c2]),
+        });
+        let page_id = arena.alloc(StyledBox {
+            id: "page-1".to_string(),
+            kind: BoxKind::Page,
+            styles: ResolvedStyles::for_kind(&BoxKind::Page),
+            content: BoxContent::Children(vec![grid_id]),
+        });
+        arena.add_root(page_id);
+
+        let layout = LayoutTree {
+            nodes: vec![
+                LayoutBox {
+                    arena_id: page_id,
+                    kind: BoxKind::Page,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 1500.0,
+                    content: LayoutContent::Children(vec![1]),
+                },
+                LayoutBox {
+                    arena_id: grid_id,
+                    kind: BoxKind::Grid,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 1500.0,
+                    content: LayoutContent::Children(vec![2, 3]),
+                },
+                LayoutBox {
+                    arena_id: c1,
+                    kind: BoxKind::Cell,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT,
+                    width: CONTENT_WIDTH_PT,
+                    height: 708.0,
+                    content: LayoutContent::Text("cell-a".to_string()),
+                },
+                LayoutBox {
+                    arena_id: c2,
+                    kind: BoxKind::Cell,
+                    x: PAGE_MARGIN_PT,
+                    y: PAGE_MARGIN_PT + 708.0,
+                    width: CONTENT_WIDTH_PT,
+                    height: 708.0,
+                    content: LayoutContent::Text("cell-b".to_string()),
+                },
+            ],
+            roots: vec![0],
+        };
+
+        let pages = paginate(&layout, &arena);
+        // Grid is 1 column here (default), so each row is one cell; two rows.
+        // First row fills a page; second row must move to the next.
+        assert!(
+            pages.pages.len() >= 2,
+            "expected page break between tall grid rows, got {}",
+            pages.pages.len()
         );
     }
 }
