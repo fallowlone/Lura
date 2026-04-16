@@ -16,13 +16,13 @@ Earlier (2026-04-11):
 
 ## Current snapshot
 
-| Area | State |
-|------|--------|
-| Lexer / Parser | Solid base; variables, arena AST, inline spans, block IDs |
-| Engine v2 | taffy layout → paginate → Painter → PDF (`pdf-writer`) / SVG; render cache |
-| Exports | JSON, text, PDF, SVG via `lura convert` / `lura render` |
-| macOS preview | Lura host + Quick Look use `PDFKit` + `lura_render_pdf` / `lura_free_pdf_result` (same bytes as engine PDF) |
-| CLI | clap subcommands: parse, validate, convert, render, printers, print |
+| Area           | State                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Lexer / Parser | Solid base; variables, arena AST, inline spans, block IDs                                                                                  |
+| Engine v2      | taffy layout → paginate → Painter → PDF (`pdf-writer`) / SVG; render cache                                                                 |
+| Exports        | JSON, text, PDF, SVG via `lura convert` / `lura render`                                                                                    |
+| macOS preview  | Lura host + Quick Look use `PDFKit` + `lura_render_pdf` / `lura_free_pdf_result` (same bytes as engine PDF)                                |
+| CLI            | clap subcommands: parse, validate, convert, render, printers, print                                                                        |
 | Gaps vs vision | Formal spec doc, `diff`/`validate` depth, certificate tooling, figure block, PDF Unicode beyond WinAnsi (TrueType path), real WGPU preview |
 
 ## Suggested next work (priority-agnostic)

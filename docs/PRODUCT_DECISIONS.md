@@ -33,10 +33,10 @@ Phases D (groups + blend) and E (SMask / complex masks) are **out of scope** for
 
 Tracked for upcoming work, not part of the counters/introspection milestone:
 
-| Item | Notes |
-|------|--------|
-| `lura diff` | AST or stable-id diff for git-friendly workflows ([CLAUDE.md](../CLAUDE.md)). |
-| FIGURE end-to-end | Parser → layout → export beyond placeholder when assets are wired. |
-| CI | `cargo test` and `cargo clippy` on push (add workflow if missing). |
-| WGPU preview | Replace stub behind `wgpu-preview` when preview UX is defined. |
-| TrueType + ToUnicode in PDF | Unicode beyond WinAnsi; overlaps Graphics phase A. |
+| Item                        | Notes                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `lura diff`                 | AST or stable-id diff for git-friendly workflows ([CLAUDE.md](../CLAUDE.md)). |
+| FIGURE end-to-end           | Parser → layout → export beyond placeholder when assets are wired.            |
+| CI                          | `cargo test` and `cargo clippy` on push (add workflow if missing).            |
+| WGPU preview                | Replace stub behind `wgpu-preview` when preview UX is defined.                |
+| TrueType + ToUnicode in PDF | Unicode beyond WinAnsi; overlaps Graphics phase A.                            |
