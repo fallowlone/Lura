@@ -33,12 +33,15 @@ final class RecentFilesStore: ObservableObject {
             for path in legacy {
                 let url = URL(fileURLWithPath: path)
                 guard FileManager.default.fileExists(atPath: url.path) else { continue }
-                if let bm = try? url.bookmarkData(
-                    options: [.withSecurityScope],
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                ) {
+                do {
+                    let bm = try url.bookmarkData(
+                        options: [.withSecurityScope],
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil
+                    )
                     entries.append(RecentEntry(bookmark: bm, displayPath: url.path, lastOpened: Date()))
+                } catch {
+                    LuraDebugLog.log("RecentFilesStore.migration: drop \(path) — bookmarkData failed \(error.localizedDescription)")
                 }
             }
             persist()
@@ -111,16 +114,20 @@ final class RecentFilesStore: ObservableObject {
             if stale {
                 // Need to start access to recreate the bookmark.
                 let scope = SecurityScopedURL(url: url)
-                if scope.start(),
-                   let fresh = try? url.bookmarkData(
-                    options: [.withSecurityScope],
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                   ) {
-                    if let idx = entries.firstIndex(of: entry) {
-                        entries[idx].bookmark = fresh
-                        entries[idx].displayPath = url.path
-                        persist()
+                if scope.start() {
+                    do {
+                        let fresh = try url.bookmarkData(
+                            options: [.withSecurityScope],
+                            includingResourceValuesForKeys: nil,
+                            relativeTo: nil
+                        )
+                        if let idx = entries.firstIndex(of: entry) {
+                            entries[idx].bookmark = fresh
+                            entries[idx].displayPath = url.path
+                            persist()
+                        }
+                    } catch {
+                        LuraDebugLog.log("RecentFilesStore.resolve: stale bookmark refresh failed \(error.localizedDescription)")
                     }
                 }
                 scope.stop()
