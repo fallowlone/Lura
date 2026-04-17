@@ -30,8 +30,10 @@ class PreviewViewController: NSViewController, QLPreviewingController {
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
-        pdfView.pageShadowsEnabled = true
-        pdfView.pageBreakMargins = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+        pdfView.pageShadowsEnabled = false
+        if #available(macOS 11.0, *) {
+            pdfView.pageBreakMargins = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+        }
         pdfView.backgroundColor = NSColor.windowBackgroundColor
 
         thumbnailView.pdfView = pdfView
@@ -88,8 +90,7 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             guard let self = self, let doc = PDFDocument(data: data) else { return }
 
             self.pdfView.document = doc
-            // With .singlePage mode, goToFirstPage is reliable — no scroll race condition
-            self.pdfView.goToFirstPage(nil)
+            self.scrollToTop(self.pdfView)
 
             // #region agent log
             let idx = self.pdfView.currentPage.map { doc.index(for: $0) } ?? -1
@@ -102,6 +103,16 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             )
             // #endregion
         }
+    }
+
+    private func scrollToTop(_ pdfView: PDFView) {
+        guard let scrollView = pdfView.enclosingScrollView else { return }
+        let clipView = scrollView.contentView
+        pdfView.layoutDocumentView()
+        guard let docView = clipView.documentView else { return }
+        let maxScrollY = NSMaxY(docView.frame) - NSHeight(clipView.bounds)
+        clipView.scroll(to: NSPoint(x: 0, y: maxScrollY))
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
