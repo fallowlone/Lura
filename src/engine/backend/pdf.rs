@@ -66,6 +66,50 @@ fn link_specs_from_commands(commands: &[PainterCommand]) -> Vec<LinkSpec> {
     out
 }
 
+#[derive(Debug, Clone)]
+struct LinkSpec {
+    x: f32,
+    y_topdown: f32,
+    width: f32,
+    font_size: f32,
+    uri: String,
+}
+
+fn link_specs_from_commands(commands: &[PainterCommand]) -> Vec<LinkSpec> {
+    let mut out = Vec::new();
+    for cmd in commands {
+        let PainterCommand::Text {
+            content,
+            x,
+            y,
+            font_size,
+            link_uri,
+            link_width_pt,
+            ..
+        } = cmd
+        else {
+            continue;
+        };
+        if content.is_empty() {
+            continue;
+        }
+        let (Some(uri), Some(w)) = (link_uri.as_ref(), link_width_pt) else {
+            continue;
+        };
+        if uri.is_empty() || *w <= 1e-3 {
+            continue;
+        }
+        out.push(LinkSpec {
+            x: *x,
+            y_topdown: *y,
+            width: *w,
+            font_size: *font_size,
+            uri: uri.clone(),
+        });
+    }
+    out
+}
+
 pub fn render(page_tree: &PageTree) -> Vec<u8> {
     let doc = from_page_tree(page_tree);
     PdfBackend.render_document_with_anchors(&doc, &page_tree.anchor_positions)
