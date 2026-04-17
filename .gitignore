@@ -9,3 +9,6 @@
 entities.json
 mempalace.yaml
 .cursor/debug-*.log
+
+# Git worktrees
+.worktrees/
