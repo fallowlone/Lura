@@ -14,11 +14,13 @@
 /// pdf-writer: bottom-left = (0,0), Y increases upward.
 /// PageTree:   top-left = (0,0), Y increases downward.
 /// Conversion: `pdf_y = page_height - our_y`
-
 use pdf_writer::types::{ActionType, AnnotationType};
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
-use crate::engine::paginate::PageTree;
+use crate::engine::paginate::{PageTree, AnchorPosition};
 use super::painter::{from_page_tree, PaintDocument, PainterBackend, PainterCommand};
+use std::collections::HashMap;
+
+type PageOpacityData = (Vec<f32>, Vec<Ref>, Vec<Vec<u8>>);
 
 #[derive(Debug, Clone)]
 struct LinkSpec {
@@ -66,13 +68,27 @@ fn link_specs_from_commands(commands: &[PainterCommand]) -> Vec<LinkSpec> {
 
 pub fn render(page_tree: &PageTree) -> Vec<u8> {
     let doc = from_page_tree(page_tree);
-    PdfBackend.render_document(&doc)
+    PdfBackend.render_document_with_anchors(&doc, &page_tree.anchor_positions)
 }
 
 pub struct PdfBackend;
 
 impl PainterBackend for PdfBackend {
+    /// Trait entry — delegates to the anchor-aware path with no anchors. The
+    /// internal-link GoTo branch becomes a no-op when the map is empty, so this
+    /// matches the previous behavior of writing every link as a URI action.
     fn render_document(&self, doc: &PaintDocument) -> Vec<u8> {
+        self.render_document_with_anchors(doc, &HashMap::new())
+    }
+}
+
+impl PdfBackend {
+    /// Render with anchor support for internal navigation.
+    fn render_document_with_anchors(
+        &self,
+        doc: &PaintDocument,
+        anchor_positions: &HashMap<String, AnchorPosition>,
+    ) -> Vec<u8> {
         let mut pdf = Pdf::new();
         let mut alloc = RefAlloc::new(1);
 
@@ -107,7 +123,7 @@ impl PainterBackend for PdfBackend {
         }
 
         // Per-page opacity → ExtGState objects (refs allocated before page bodies).
-        let mut page_opacity: Vec<(Vec<f32>, Vec<Ref>, Vec<Vec<u8>>)> = Vec::with_capacity(doc.pages.len());
+        let mut page_opacity: Vec<PageOpacityData> = Vec::with_capacity(doc.pages.len());
         for page in &doc.pages {
             let alphas = collect_unique_opacity_alphas(&page.commands);
             let mut refs = Vec::with_capacity(alphas.len());
@@ -152,7 +168,7 @@ impl PainterBackend for PdfBackend {
                 .encoding_predefined(Name(b"WinAnsiEncoding"));
         }
 
-               // --- Pages ---
+        // --- Pages ---
         for (i, page) in doc.pages.iter().enumerate() {
             let page_id = page_ids[i];
             let content_id = content_ids[i];
@@ -191,6 +207,7 @@ impl PainterBackend for PdfBackend {
             pdf.stream(content_id, buf.as_slice());
         }
 
+        // --- Link annotations with GoTo support for internal anchors ---
         for (i, page) in doc.pages.iter().enumerate() {
             let specs = &page_link_specs[i];
             let refs = &page_link_annots[i];
@@ -208,34 +225,41 @@ impl PainterBackend for PdfBackend {
                 ann.subtype(AnnotationType::Link);
                 ann.rect(rect);
                 ann.contents(TextStr(spec.uri.as_str()));
-                ann.action()
-                    .action_type(ActionType::Uri)
-                    .uri(Str(spec.uri.as_bytes()));
+
+                // Check if this is an internal anchor link (#anchor_id)
+                if spec.uri.starts_with('#') {
+                    let anchor_id = &spec.uri[1..];
+                    if let Some(pos) = anchor_positions.get(anchor_id) {
+                        // Internal link: emit GoTo action targeting the anchor.
+                        // Get the target page (0-based for pdf-writer)
+                        let target_page_idx = (pos.page_index - 1) as usize;
+                        if target_page_idx < page_ids.len() {
+                            ann.action()
+                                .action_type(ActionType::GoTo)
+                                .destination()
+                                .page(page_ids[target_page_idx])
+                                .xyz(0.0, page_height, None);
+                        } else {
+                            // Fallback: treat as external URI if anchor not found on a valid page.
+                            ann.action()
+                                .action_type(ActionType::Uri)
+                                .uri(Str(spec.uri.as_bytes()));
+                        }
+                    } else {
+                        // Anchor not resolved: fallback to URI action.
+                        ann.action()
+                            .action_type(ActionType::Uri)
+                            .uri(Str(spec.uri.as_bytes()));
+                    }
+                } else {
+                    // External link: emit URI action as before.
+                    ann.action()
+                        .action_type(ActionType::Uri)
+                        .uri(Str(spec.uri.as_bytes()));
+                }
                 ann.finish();
             }
         }
-
-        // #region agent log
-        {
-            use std::io::Write;
-            let total_links: usize = page_link_specs.iter().map(|v| v.len()).sum();
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/Users/artemmac/programming/personal/lura/.cursor/debug-8cc234.log")
-            {
-                let _ = writeln!(
-                    f,
-                    r#"{{"sessionId":"8cc234","hypothesisId":"L","location":"pdf.rs:render_document","message":"pdf_link_annotations_written","data":{{"total_links":{}}},"timestamp":{}}}"#,
-                    total_links, ts
-                );
-            }
-        }
-        // #endregion
 
         pdf.finish()
     }
@@ -246,12 +270,12 @@ fn collect_unique_opacity_alphas(commands: &[PainterCommand]) -> Vec<f32> {
     for cmd in commands {
         if let PainterCommand::PushOpacity { alpha } = cmd {
             let a = alpha.clamp(0.0, 1.0);
-            if !out.iter().any(|x| (x - a).abs() < 1e-4) {
+            if a.is_finite() && !out.iter().any(|x| (x - a).abs() < 1e-4) {
                 out.push(a);
             }
         }
     }
-    out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     out
 }
 

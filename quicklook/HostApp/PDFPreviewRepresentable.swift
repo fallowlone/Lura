@@ -21,14 +21,29 @@ struct PDFPreviewRepresentable: NSViewRepresentable {
     func updateNSView(_ pdfView: PDFView, context: Context) {
         if let data = pdfData, !data.isEmpty, let doc = PDFDocument(data: data) {
             pdfView.document = doc
-            pdfView.layoutDocumentView()
-            pdfView.goToFirstPage(nil)
+            // Defer scrolling until after the view has been laid out
             DispatchQueue.main.async {
-                pdfView.layoutDocumentView()
-                pdfView.goToFirstPage(nil)
+                self.scrollToTop(pdfView)
             }
         } else {
             pdfView.document = nil
         }
+    }
+
+    private func scrollToTop(_ pdfView: PDFView) {
+        guard let scrollView = pdfView.enclosingScrollView else { return }
+        let clipView = scrollView.contentView
+
+        pdfView.layoutDocumentView()
+
+        // PDFKit origin is bottom-left; scroll to maxY to reach the top
+        guard let docView = clipView.documentView else { return }
+        let docFrame = docView.frame
+        let clipBounds = clipView.bounds
+        let maxScrollY = NSMaxY(docFrame) - NSHeight(clipBounds)
+        let targetPoint = NSPoint(x: 0, y: maxScrollY)
+
+        clipView.scroll(to: targetPoint)
+        scrollView.reflectScrolledClipView(clipView)
     }
 }

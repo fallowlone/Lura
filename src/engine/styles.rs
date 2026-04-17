@@ -29,7 +29,7 @@ pub enum ListStyle {
 }
 
 impl BoxKind {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "PAGE"  => BoxKind::Page,
             "H1"    => BoxKind::Heading(1),
@@ -112,9 +112,13 @@ pub struct ResolvedStyles {
     pub justify: bool,
     pub keep_together: bool,
     pub keep_with_next: bool,
-    pub widows: usize,
-    pub orphans: usize,
-    pub allow_row_split: bool,
+    /// When true, a table row is painted in place even if it overflows past
+    /// the page bottom (content is clipped at the page edge). When false
+    /// (default), the paginator forces a page break before rows that would
+    /// overflow. True row splitting — continuing cell content on the next
+    /// page — is not implemented; this flag only controls the break-vs-clip
+    /// decision for an oversized row.
+    pub allow_row_overflow: bool,
 
     /// Display type (block / grid / flex)
     pub display: Display,
@@ -135,6 +139,23 @@ pub struct ResolvedStyles {
     pub anchor: Option<String>,
     pub page_header: Option<String>,
     pub page_footer: Option<String>,
+
+    /// CELL vertical alignment inside its row.
+    pub vertical_align: VerticalAlign,
+    /// CELL column span (number of columns consumed). Default 1.
+    pub cell_span: usize,
+    /// CELL: suppress line breaking inside this cell.
+    pub nowrap: bool,
+    /// CELL: render a single line, clip with ellipsis if it overflows the inner width.
+    pub truncate: bool,
+    /// TABLE: per-column horizontal alignment fallback used when a cell has no
+    /// explicit `align`. Empty = no per-column override.
+    pub col_aligns: Vec<TextAlign>,
+    /// Set by resolver when the block carries an explicit `text-align`/`align`
+    /// attr (single-word form). Distinguishes user-specified alignment from the
+    /// inherited/default `text_align`, which lets TABLE `col_aligns` act as a
+    /// fallback only for cells that did not opt in themselves.
+    pub explicit_text_align: Option<TextAlign>,
 }
 
 impl Default for ResolvedStyles {
@@ -163,9 +184,7 @@ impl Default for ResolvedStyles {
             justify: false,
             keep_together: false,
             keep_with_next: false,
-            widows: 2,
-            orphans: 2,
-            allow_row_split: false,
+            allow_row_overflow: false,
             display: Display::Block,
             grid_column_tracks: Vec::new(),
             column_gap: 4.0,
@@ -176,6 +195,12 @@ impl Default for ResolvedStyles {
             anchor: None,
             page_header: None,
             page_footer: None,
+            vertical_align: VerticalAlign::Top,
+            cell_span: 1,
+            nowrap: false,
+            truncate: false,
+            col_aligns: Vec::new(),
+            explicit_text_align: None,
         }
     }
 }
@@ -299,7 +324,7 @@ impl Color {
     }
 
     /// Parse strings like "#FF0000", "#FFF", "red", "black"
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim().trim_start_matches('#');
         match s {
             "black"   => return Some(Color::BLACK),
@@ -368,6 +393,13 @@ pub enum TextAlign {
     Center,
     Right,
     Justify,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VerticalAlign {
+    Top,
+    Middle,
+    Bottom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
