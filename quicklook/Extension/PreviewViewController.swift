@@ -26,18 +26,15 @@ class PreviewViewController: NSViewController, QLPreviewingController {
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
 
         pdfView.autoScales = true
-        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayMode = .singlePage
         pdfView.displayDirection = .vertical
         pdfView.pageShadowsEnabled = true
         pdfView.backgroundColor = NSColor.windowBackgroundColor
-        if #available(macOS 11.0, *) {
-            pdfView.pageBreakMargins = NSEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
-        }
 
         thumbnailView.pdfView = pdfView
         thumbnailView.maximumNumberOfColumns = 1
         thumbnailView.allowsMultipleSelection = false
-        thumbnailView.thumbnailSize = NSSize(width: 88, height: 118)
+        thumbnailView.thumbnailSize = NSSize(width: 72, height: 96)
         thumbnailView.backgroundColor = NSColor.controlBackgroundColor
 
         container.addSubview(pdfView)
@@ -77,80 +74,27 @@ class PreviewViewController: NSViewController, QLPreviewingController {
         LuraAgentSessionLog.append(
             hypothesisId: "H1",
             location: "PreviewViewController.showPDF",
-            message: "document_set",
+            message: "pdf_stored",
             data: ["pdfBytes": data.count, "pageCountFromDoc": pcInit],
             siblingToDocument: lastPreviewDocumentURL
         )
         // #endregion
-        pdfView.document = PDFDocument(data: data)
-        DispatchQueue.main.async { [weak self] in
-            self?.scrollPDFToStart()
-        }
-    }
 
-    /// Let PDFKit lay out the continuous strip, then jump to page 1. No manual NSScrollView bounds
-    /// (that broke document coordinates). A slightly delayed pass catches late layout.
-    private func scrollPDFToStart() {
-        // #region agent log
-        func logScroll(phase: String) {
-            let d = self.pdfView.document
-            let pc = d?.pageCount ?? -1
-            let idx = d.flatMap { doc in self.pdfView.currentPage.map { doc.index(for: $0) } } ?? -1
-            let scrollY = self.pdfView.enclosingScrollView?.contentView.bounds.origin.y ?? -1.0
-            LuraAgentSessionLog.append(
-                hypothesisId: "H3",
-                location: "PreviewViewController.scrollPDFToStart",
-                message: phase,
-                data: [
-                    "pageCount": pc,
-                    "currentPageIndex": idx,
-                    "scrollOriginY": scrollY,
-                ],
-                siblingToDocument: self.lastPreviewDocumentURL
-            )
-        }
-        logScroll(phase: "before_snap")
-        // #endregion
-        func snap() {
-            pdfView.layoutDocumentView()
-            pdfView.goToFirstPage(nil)
-        }
-        snap()
-        // #region agent log
-        logScroll(phase: "after_snap")
-        // #endregion
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.pdfView.layoutDocumentView()
+            guard let self = self, let doc = PDFDocument(data: data) else { return }
+
+            self.pdfView.document = doc
+            // .singlePage mode makes goToFirstPage reliable — no scroll race with
+            // continuous-strip layout landing the view on the last page.
             self.pdfView.goToFirstPage(nil)
+
             // #region agent log
-            let d = self.pdfView.document
-            let pc = d?.pageCount ?? -1
-            let idx = d.flatMap { doc in self.pdfView.currentPage.map { doc.index(for: $0) } } ?? -1
-            let scrollY = self.pdfView.enclosingScrollView?.contentView.bounds.origin.y ?? -1.0
+            let idx = self.pdfView.currentPage.map { doc.index(for: $0) } ?? -1
             LuraAgentSessionLog.append(
-                hypothesisId: "H3",
-                location: "PreviewViewController.scrollPDFToStart",
-                message: "after_async_main",
-                data: ["pageCount": pc, "currentPageIndex": idx, "scrollOriginY": scrollY],
-                siblingToDocument: self.lastPreviewDocumentURL
-            )
-            // #endregion
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
-            guard let self = self else { return }
-            self.pdfView.layoutDocumentView()
-            self.pdfView.goToFirstPage(nil)
-            // #region agent log
-            let d = self.pdfView.document
-            let pc = d?.pageCount ?? -1
-            let idx = d.flatMap { doc in self.pdfView.currentPage.map { doc.index(for: $0) } } ?? -1
-            let scrollY = self.pdfView.enclosingScrollView?.contentView.bounds.origin.y ?? -1.0
-            LuraAgentSessionLog.append(
-                hypothesisId: "H3",
-                location: "PreviewViewController.scrollPDFToStart",
-                message: "after_delay_006",
-                data: ["pageCount": pc, "currentPageIndex": idx, "scrollOriginY": scrollY],
+                hypothesisId: "H4",
+                location: "PreviewViewController.showPDF",
+                message: "document_set_after_handler",
+                data: ["currentPageIndex": idx],
                 siblingToDocument: self.lastPreviewDocumentURL
             )
             // #endregion
