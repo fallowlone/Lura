@@ -330,15 +330,15 @@ impl<'a> Paginator<'a> {
                 ..
             } if !content.is_empty() => {
                 let mono = font_family.eq_ignore_ascii_case("Courier");
-                let width = super::text::text_width_pt_with_spacing(
-                    content, *font_size, *bold, 0.0, 0.0,
-                );
                 let width = if mono {
-                    // `text_width_pt_with_spacing` uses proportional metrics; for
-                    // monospace the rough approximation 0.6em/char works better.
+                    // Monospace: 0.6 em per char is a close-enough Courier
+                    // advance for highlight rects; skip the proportional
+                    // measurement path entirely.
                     (content.chars().count() as f32) * font_size * 0.6
                 } else {
-                    width
+                    super::text::text_width_pt_with_spacing(
+                        content, *font_size, *bold, 0.0, 0.0,
+                    )
                 };
                 // `y` is the painter's top-origin baseline. Convert to
                 // PDF bottom-origin for the match rect (baseline sits near the

@@ -231,3 +231,19 @@ fn code_legacy_block_children_still_parse_as_children() {
         other => panic!("expected Content::Children, got {:?}", other),
     }
 }
+
+#[test]
+fn code_with_explicit_id_still_parses_raw_body() {
+    // Regression: the `[id]` annotation ident must not clobber the
+    // `last_ident_was_code` flag, or the body falls back to Content mode.
+    let src = "PAGE(CODE[myid](\nfn main() {\n  println!(\"hi\");\n}\n))";
+    let doc = parse(src);
+    let code = first_code(&doc, doc.root_ids()[0]).expect("CODE");
+    assert_eq!(code.id, "myid");
+    match &code.content {
+        Content::Text(body) => {
+            assert_eq!(body, "fn main() {\n  println!(\"hi\");\n}");
+        }
+        other => panic!("expected raw Content::Text, got {:?}", other),
+    }
+}

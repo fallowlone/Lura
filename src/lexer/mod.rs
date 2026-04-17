@@ -29,6 +29,9 @@ pub struct Lexer {
     mode: Mode,
     paren_depth: usize, // tracks nested ( )
     brace_depth: usize, // tracks nested { }
+    /// Tracks `[...]` nesting so the `[id]` annotation's ident does not
+    /// clobber `last_ident_was_code`. 0 = outside any bracket pair.
+    bracket_depth: usize,
     /// True iff the most recently emitted Ident was `CODE` and no other
     /// structural token has been emitted since.
     last_ident_was_code: bool,
@@ -42,6 +45,7 @@ impl Lexer {
             mode: Mode::Normal,
             paren_depth: 0,
             brace_depth: 0,
+            bracket_depth: 0,
             last_ident_was_code: false,
         }
     }
@@ -387,15 +391,22 @@ impl Lexer {
                     }
                     Some('[') => {
                         self.advance();
+                        self.bracket_depth += 1;
                         Token::LBracket
                     }
                     Some(']') => {
                         self.advance();
+                        self.bracket_depth = self.bracket_depth.saturating_sub(1);
                         Token::RBracket
                     }
                     Some(c) if c.is_alphabetic() => {
                         let s = self.read_ident();
-                        self.last_ident_was_code = s == "CODE";
+                        // Only block-opener idents (outside any `[id]` annotation)
+                        // carry the CODE signal forward; id strings inside `[...]`
+                        // must not clobber the flag.
+                        if self.bracket_depth == 0 {
+                            self.last_ident_was_code = s == "CODE";
+                        }
                         Token::Ident(s)
                     }
                     _ => { self.advance(); self.next_token() }
