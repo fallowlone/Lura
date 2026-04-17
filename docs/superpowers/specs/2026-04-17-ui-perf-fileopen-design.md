@@ -116,13 +116,13 @@ New file `quicklook/HostApp/LuraTheme.swift`. Single source for color, typograph
 
 **Palette light**
 
-| Token  | Hex       |
-| ------ | --------- |
-| paper  | `#FAF6EE` |
-| ink    | `#2B2418` |
-| muted  | `#8C8273` |
+| Token  | Hex                |
+| ------ | ------------------ |
+| paper  | `#FAF6EE`          |
+| ink    | `#2B2418`          |
+| muted  | `#8C8273`          |
 | accent | `#A0522D` (sienna) |
-| rule   | `#E5DCC8` |
+| rule   | `#E5DCC8`          |
 
 **Palette dark**
 
@@ -211,13 +211,13 @@ document.text changes
 
 Wire baseline numbers via Instruments and custom signposts. New file `quicklook/Shared/LuraSignpost.swift`.
 
-| Metric            | Probe                                                         | Target          |
-| ----------------- | ------------------------------------------------------------- | --------------- |
-| Cold launch       | `os_signpost` from `main()` to first window paint             | < 400 ms        |
-| Open file         | signpost from `openDocumentURL` to editor visible             | < 150 ms (<100 KB) |
-| Typing latency    | signpost on `NSTextView.didChangeText` to next display frame  | < 16 ms         |
-| Preview render    | signpost around `LuraRenderFFI.renderPDF`                     | p50 < 100 ms, p95 < 300 ms |
-| Quick Look thumb  | wall time of `qlmanage -t -s 256 file.lura`                   | < 200 ms        |
+| Metric           | Probe                                                        | Target                     |
+| ---------------- | ------------------------------------------------------------ | -------------------------- |
+| Cold launch      | `os_signpost` from `main()` to first window paint            | < 400 ms                   |
+| Open file        | signpost from `openDocumentURL` to editor visible            | < 150 ms (<100 KB)         |
+| Typing latency   | signpost on `NSTextView.didChangeText` to next display frame | < 16 ms                    |
+| Preview render   | signpost around `LuraRenderFFI.renderPDF`                    | p50 < 100 ms, p95 < 300 ms |
+| Quick Look thumb | wall time of `qlmanage -t -s 256 file.lura`                  | < 200 ms                   |
 
 Signpost output mirrored to `LuraDebugLog` and appended as CSV at `~/Library/Caches/.../perf.csv` for grep-friendly comparison.
 

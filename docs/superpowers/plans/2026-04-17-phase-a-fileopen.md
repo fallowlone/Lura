@@ -16,17 +16,17 @@
 
 ## File Structure
 
-| File | Action | Responsibility |
-| --- | --- | --- |
-| `quicklook/HostApp/RecentEntry.swift` | create | `Codable` struct: `bookmark: Data`, `displayPath: String`, `lastOpened: Date` |
-| `quicklook/HostApp/SecurityScopedURL.swift` | create | RAII wrapper around a URL: `start()`, `stop()`, balanced refcount |
-| `quicklook/HostApp/RecentFilesStore.swift` | modify | Switch from `[URL]` strings in `UserDefaults` to `[RecentEntry]` JSON blob; expose resolve API |
-| `quicklook/HostApp/LuraAppDelegate.swift` | modify | Implement `application(_:open urls:)`, queue URLs received before model registers |
-| `quicklook/HostApp/LuraApp.swift` | modify | Add `.onOpenURL { url in appModel.openDocumentURL(url) }` to `WindowGroup` |
-| `quicklook/HostApp/LuraAppModel.swift` | modify | New `openDocumentURL(bookmark:)` overload; track scope on open document; expose `registerWithDelegate(_:)` to drain queue |
-| `quicklook/HostApp/LuraFileDocument.swift` | modify | Hold `SecurityScopedURL?`, stop on `deinit` |
-| `quicklook/HostApp/WelcomeView.swift` | modify | `RecentRow` consumes `RecentEntry` instead of `URL`; gracefully handle stale bookmarks |
-| `install-preview.sh` | modify | Add `RecentEntry.swift` and `SecurityScopedURL.swift` to `HOST_SWIFT` array |
+| File                                        | Action | Responsibility                                                                                                            |
+| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `quicklook/HostApp/RecentEntry.swift`       | create | `Codable` struct: `bookmark: Data`, `displayPath: String`, `lastOpened: Date`                                             |
+| `quicklook/HostApp/SecurityScopedURL.swift` | create | RAII wrapper around a URL: `start()`, `stop()`, balanced refcount                                                         |
+| `quicklook/HostApp/RecentFilesStore.swift`  | modify | Switch from `[URL]` strings in `UserDefaults` to `[RecentEntry]` JSON blob; expose resolve API                            |
+| `quicklook/HostApp/LuraAppDelegate.swift`   | modify | Implement `application(_:open urls:)`, queue URLs received before model registers                                         |
+| `quicklook/HostApp/LuraApp.swift`           | modify | Add `.onOpenURL { url in appModel.openDocumentURL(url) }` to `WindowGroup`                                                |
+| `quicklook/HostApp/LuraAppModel.swift`      | modify | New `openDocumentURL(bookmark:)` overload; track scope on open document; expose `registerWithDelegate(_:)` to drain queue |
+| `quicklook/HostApp/LuraFileDocument.swift`  | modify | Hold `SecurityScopedURL?`, stop on `deinit`                                                                               |
+| `quicklook/HostApp/WelcomeView.swift`       | modify | `RecentRow` consumes `RecentEntry` instead of `URL`; gracefully handle stale bookmarks                                    |
+| `install-preview.sh`                        | modify | Add `RecentEntry.swift` and `SecurityScopedURL.swift` to `HOST_SWIFT` array                                               |
 
 ---
 
