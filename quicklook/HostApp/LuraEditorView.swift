@@ -178,9 +178,6 @@ struct LuraEditorView: View {
         do {
             try document.save()
             appModel.editorIsDirty = false
-            if let pdf = previewPDFData {
-                LuraPreviewSidecar.write(pdf: pdf, documentURL: document.url)
-            }
         } catch {
             presentAlert(title: "Save failed", message: error.localizedDescription)
         }
@@ -228,9 +225,6 @@ struct LuraEditorView: View {
         case .alertFirstButtonReturn:
             do {
                 try document.save()
-                if let pdf = previewPDFData {
-                    LuraPreviewSidecar.write(pdf: pdf, documentURL: document.url)
-                }
                 onClose()
             } catch {
                 presentAlert(title: "Save failed", message: error.localizedDescription)

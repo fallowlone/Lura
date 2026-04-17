@@ -86,7 +86,8 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             guard let self = self, let doc = PDFDocument(data: data) else { return }
 
             self.pdfView.document = doc
-            // With .singlePage mode, goToFirstPage is reliable — no scroll race condition
+            // .singlePage mode makes goToFirstPage reliable — no scroll race with
+            // continuous-strip layout landing the view on the last page.
             self.pdfView.goToFirstPage(nil)
 
             // #region agent log
@@ -113,20 +114,9 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             siblingToDocument: url
         )
         // #endregion
-        if let sidecar = LuraPreviewSidecar.pdfIfFresh(documentURL: url) {
-            // #region agent log
-            LuraAgentSessionLog.append(
-                hypothesisId: "H1",
-                location: "PreviewViewController.preparePreviewOfFile",
-                message: "branch_sidecar",
-                data: ["bytes": sidecar.count],
-                siblingToDocument: url
-            )
-            // #endregion
-            showPDF(data: sidecar)
-            handler(nil)
-            return
-        }
+        // Reading a sibling `.preview.pdf` from the Quick Look extension triggers the
+        // macOS 15 "data from other apps" TCC prompt. The App Group disk cache below
+        // already covers the warm path, so the sidecar fast-path is dropped.
 
         let fileData: Data
         do {

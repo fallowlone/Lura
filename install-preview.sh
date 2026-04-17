@@ -36,7 +36,6 @@ HOST_SWIFT=(
     quicklook/Shared/LuraAgentSessionLog.swift
     quicklook/Shared/LuraPdfFFI.swift
     quicklook/Shared/LuraPreviewDiskCache.swift
-    quicklook/Shared/LuraPreviewSidecar.swift
     quicklook/HostApp/LuraDebugLog.swift
     quicklook/HostApp/LuraTemplates.swift
     quicklook/HostApp/RecentFilesStore.swift
@@ -59,7 +58,7 @@ swiftc "${HOST_SWIFT[@]}" \
     -framework PDFKit
 
 echo "==> Compiling Quick Look Extension (Swift)..."
-swiftc quicklook/Shared/LuraAgentSessionLog.swift quicklook/Shared/LuraPdfFFI.swift quicklook/Shared/LuraPreviewDiskCache.swift quicklook/Shared/LuraPreviewSidecar.swift quicklook/Extension/PreviewViewController.swift \
+swiftc quicklook/Shared/LuraAgentSessionLog.swift quicklook/Shared/LuraPdfFFI.swift quicklook/Shared/LuraPreviewDiskCache.swift quicklook/Extension/PreviewViewController.swift \
     -parse-as-library \
     -module-name "$EXT_NAME" \
     -o "$EXT_DIR/Contents/MacOS/$EXT_NAME" \

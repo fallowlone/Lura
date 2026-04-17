@@ -61,12 +61,13 @@ Large examples such as [`examples/showcase-large.fol`](examples/showcase-large.f
 
 The engine keeps a small **in-process** render cache in [`src/engine/mod.rs`](src/engine/mod.rs) (helps if the same document is rendered again without unloading the library). Quick Look often uses a **cold** process, so the first preview is usually a full run. Build with **`cargo build --release`** (as in [`install-preview.sh`](install-preview.sh)) so the bundled `liblura.dylib` is optimized; debug builds add overhead but do not change the fact that FOL preview does more work than opening a static PDF.
 
-Faster paths (see [`docs/PREVIEW_FIRST_OPEN.md`](docs/PREVIEW_FIRST_OPEN.md)):
+Faster path (see [`docs/PREVIEW_FIRST_OPEN.md`](docs/PREVIEW_FIRST_OPEN.md)):
 
-1. **Sidecar** — `yourdoc.fol.preview.pdf` next to the source. Quick Look prefers it when it is at least as new as the source ([`quicklook/Shared/LuraPreviewSidecar.swift`](quicklook/Shared/LuraPreviewSidecar.swift)). Create it with `lura convert … --format pdf --preview-sidecar` or `lura render … --preview-sidecar`, or **Save** in the Lura app (writes sidecar if preview succeeded).
-2. **Shared disk cache** — SHA256-keyed PDF under an **App Group** (`group.com.fallowlone.lura`) so the editor and the QL extension share the same folder ([`quicklook/Shared/LuraPreviewDiskCache.swift`](quicklook/Shared/LuraPreviewDiskCache.swift)). The app **prewarms** the cache after each successful debounced preview, so Finder can open cold-fast after the document was previewed in Lura.
+1. **Shared disk cache** — SHA256-keyed PDF under an **App Group** (`group.com.fallowlone.lura`) so the editor and the QL extension share the same folder ([`quicklook/Shared/LuraPreviewDiskCache.swift`](quicklook/Shared/LuraPreviewDiskCache.swift)). The app **prewarms** the cache after each successful debounced preview, so Finder can open cold-fast after the document was previewed in Lura.
 
-If neither sidecar nor cache applies, preview still runs the full pipeline once.
+A previous sidecar `yourdoc.fol.preview.pdf` path was removed: reading a sibling file from the QL extension trips the macOS 15 "data from other apps" TCC prompt. The App Group disk cache is the supported warm path.
+
+If the cache does not apply, preview still runs the full pipeline once.
 
 Relevant code: [`quicklook/Extension/PreviewViewController.swift`](quicklook/Extension/PreviewViewController.swift), [`src/lib.rs`](src/lib.rs) (`lura_render_pdf`), [`src/engine/mod.rs`](src/engine/mod.rs) (`render`).
 
