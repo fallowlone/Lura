@@ -94,3 +94,11 @@ fn code_block_keeps_indent_and_uses_courier_advance() {
     assert!((x_space - x_fn - 12.0).abs() < 0.1, "fn advance {}", x_space - x_fn);
     assert!(t.iter().any(|(_, s)| s == "    "), "indentation lost: {t:?}");
 }
+
+#[test]
+fn render_cache_distinguishes_inline_styling_with_equal_explicit_ids() {
+    let styled = engine::render_svg(&parse_doc("PAGE(P[k](see **this** [x](http://a.example)))"));
+    let plain = engine::render_svg(&parse_doc("PAGE(P[k](see this [x](http://b.example)))"));
+    assert!(styled.contains("font-weight=\"700\""));
+    assert!(!plain.contains("font-weight=\"700\""), "cached output of the bold document was reused");
+}

@@ -1,17 +1,37 @@
+use std::collections::HashSet;
+
 use crate::parser::ast::{Content, Document, InlineNode, NodeId, Value};
 
 /// Assign IDs to all blocks in the document.
 /// Explicit IDs (non-empty block.id) are kept as-is.
 /// Empty IDs are filled with a FNV-1a hash of the block's content.
 /// Processing is bottom-up: children receive IDs before their parent.
+/// Auto IDs are unique: a repeat of an already used ID gets `-2`, `-3`, ... in document order,
+/// and an auto ID never takes one that is written explicitly anywhere in the document.
 pub fn assign_ids(mut doc: Document) -> Document {
+    let mut used = HashSet::new();
+    doc.for_each_block_mut(|block| {
+        if !block.id.is_empty() {
+            used.insert(block.id.clone());
+        }
+    });
     for root in doc.root_ids().to_vec() {
-        assign_block_id(root, &mut doc);
+        assign_block_id(root, &mut doc, &mut used);
     }
     doc
 }
 
-fn assign_block_id(root: NodeId, doc: &mut Document) {
+fn unique_id(base: String, used: &mut HashSet<String>) -> String {
+    let mut id = base.clone();
+    let mut n = 1;
+    while !used.insert(id.clone()) {
+        n += 1;
+        id = format!("{base}-{n}");
+    }
+    id
+}
+
+fn assign_block_id(root: NodeId, doc: &mut Document, used: &mut HashSet<String>) {
     // Iterative post-order: (node, visited_children)
     let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
 
@@ -27,7 +47,7 @@ fn assign_block_id(root: NodeId, doc: &mut Document) {
         }
 
         if doc.block(node_id).id.is_empty() {
-            let new_id = compute_auto_id(node_id, doc);
+            let new_id = unique_id(compute_auto_id(node_id, doc), used);
             doc.block_mut(node_id).id = new_id;
         }
     }
