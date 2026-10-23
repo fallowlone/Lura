@@ -28,7 +28,7 @@ Earlier (2026-04-11):
 ## Suggested next work (priority-agnostic)
 
 1. **Specification** — extend [docs/SPEC.md](docs/SPEC.md) beyond counters/introspection; keep versioned.
-2. **PDF fonts** — done for Latin/Cyrillic/Greek (bundled Liberation subsets + ToUnicode). Open: CJK/emoji fallback faces, Flate-compress font and content streams.
+2. **PDF fonts** — done for Latin/Cyrillic/Greek (bundled Liberation subsets + ToUnicode). Streams are Flate-compressed by an in-tree encoder (`backend/flate.rs`, fixed Huffman). Open: CJK/emoji fallback faces, dynamic Huffman if ratio matters.
 3. **Diff** — `lura diff` on AST or stable IDs (git-friendly story from CLAUDE.md).
 4. **Block coverage** — `FIGURE` (and any missing semantic blocks) end-to-end parser → layout → export.
 5. **WGPU** — replace stub behind `wgpu-preview` when preview UX is defined.

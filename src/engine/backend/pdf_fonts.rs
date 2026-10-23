@@ -6,9 +6,10 @@
 use std::collections::BTreeMap;
 
 use pdf_writer::types::{CidFontType, FontFlags, SystemInfo, UnicodeCmap};
-use pdf_writer::{Name, Pdf, Rect, Ref, Str};
+use pdf_writer::{Filter, Name, Pdf, Rect, Ref, Str};
 use subsetter::GlyphRemapper;
 
+use super::flate::zlib_compress;
 use crate::engine::fonts;
 
 const RESOURCE_NAMES: [&[u8]; fonts::SLOT_COUNT] =
@@ -135,7 +136,9 @@ impl FontSet {
                 .stem_v(if bold { 120.0 } else { 80.0 })
                 .font_file2(file);
 
-            pdf.stream(file, &subset).pair(Name(b"Length1"), subset.len() as i32);
+            pdf.stream(file, &zlib_compress(&subset))
+                .filter(Filter::FlateDecode)
+                .pair(Name(b"Length1"), subset.len() as i32);
 
             let mut map = UnicodeCmap::new(
                 Name(b"Custom"),

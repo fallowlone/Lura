@@ -15,9 +15,10 @@
 /// PageTree:   top-left = (0,0), Y increases downward.
 /// Conversion: `pdf_y = page_height - our_y`
 use pdf_writer::types::{ActionType, AnnotationType};
-use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
+use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use crate::engine::fonts;
 use crate::engine::paginate::{PageTree, AnchorPosition};
+use super::flate::zlib_compress;
 use super::pdf_fonts::{self, FontSet};
 use super::painter::{from_page_tree, PaintDocument, PainterBackend, PainterCommand};
 use std::collections::HashMap;
@@ -190,7 +191,8 @@ impl PdfBackend {
                 }
             }
 
-            pdf.stream(content_id, contents[i].as_slice());
+            pdf.stream(content_id, &zlib_compress(contents[i].as_slice()))
+                .filter(Filter::FlateDecode);
         }
 
         // --- Link annotations with GoTo support for internal anchors ---
