@@ -108,3 +108,16 @@ fn test_block_id_token_sequence() {
     assert_eq!(tokens[3], Token::RBracket);
     assert_eq!(tokens[4], Token::LParen);
 }
+
+#[test]
+fn stray_rparen_after_attrs_does_not_underflow_depth() {
+    lex("{\"\"})");
+}
+
+#[test]
+fn code_block_preserves_leading_indentation() {
+    let tokens = lex("CODE(P(    four))");
+    assert!(tokens.contains(&Token::Text("    four".into())), "{tokens:?}");
+    let tokens = lex("P(    four)");
+    assert!(tokens.contains(&Token::Text("four".into())), "{tokens:?}");
+}

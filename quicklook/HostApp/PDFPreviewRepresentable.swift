@@ -28,13 +28,20 @@ struct PDFPreviewRepresentable: NSViewRepresentable {
     func updateNSView(_ pdfView: PDFView, context: Context) {
         let coord = context.coordinator
 
-        // Reload the PDFDocument when the bytes actually changed.
-        let dataChanged = coord.lastDataHash != pdfData?.hashValue
+        // The deferred block below runs after later updates may have arrived, so it reads the
+        // newest highlight state from the coordinator, never from this struct's captured copy.
+        coord.matches = matches
+        coord.currentMatchIndex = currentMatchIndex
+
+        // Reload the PDFDocument when the bytes actually changed (full comparison: a hash
+        // collision would otherwise keep showing the old document).
+        let dataChanged = coord.lastData != pdfData
         if dataChanged {
-            coord.lastDataHash = pdfData?.hashValue
+            coord.lastData = pdfData
             if let data = pdfData, !data.isEmpty, let doc = PDFDocument(data: data) {
                 pdfView.document = doc
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak coord, weak pdfView] in
+                    guard let coord, let pdfView else { return }
                     self.scrollToTop(pdfView)
                     self.applyHighlights(pdfView, coord: coord)
                 }
@@ -61,6 +68,8 @@ struct PDFPreviewRepresentable: NSViewRepresentable {
         }
         coord.currentHighlights.removeAll()
 
+        let matches = coord.matches
+        let currentMatchIndex = coord.currentMatchIndex
         guard !matches.isEmpty else { return }
 
         for (idx, unit) in matches.enumerated() {
@@ -100,7 +109,9 @@ struct PDFPreviewRepresentable: NSViewRepresentable {
 
     final class Coordinator {
         weak var pdfView: PDFView?
-        var lastDataHash: Int?
+        var lastData: Data?
+        var matches: [LuraTextUnit] = []
+        var currentMatchIndex = 0
         var currentHighlights: [(PDFPage, PDFAnnotation)] = []
     }
 }

@@ -49,7 +49,7 @@ Early development. The pipeline works for experimentation; the **written specifi
 
 - [x] Lexer and parser (arena AST, variables, inline spans, stable IDs)
 - [x] Exports: JSON, plain text; binary via PDF and SVG (same layout pipeline)
-- [x] Layout engine v2: taffy → A4 pagination → PDF (`pdf-writer`) and SVG
+- [x] Layout engine v2: taffy → A4 pagination → PDF (`pdf-writer`, embedded font subsets) and SVG
 - [x] CLI: `parse`, `validate`, `convert` (json | text | pdf | svg), `render`, `printers`, `print` (CUPS on Unix)
 - [x] macOS Lura app + Quick Look: native PDF preview (`PDFKit`) via FFI `lura_render_pdf` / `lura_free_pdf_result`
 
@@ -76,7 +76,7 @@ Relevant code: [`quicklook/Extension/PreviewViewController.swift`](quicklook/Ext
 - [ ] Published format specification (normative doc)
 - [ ] `diff` (and merge helpers) on documents or block IDs
 - [ ] Certificate generation and verification in tooling
-- [ ] PDF: embedded TrueType + full Unicode (current path uses built-in Type1 + WinAnsi)
+- [ ] PDF: scripts outside Liberation coverage (CJK, emoji) render as `.notdef` boxes; fonts are bundled Liberation Sans/Mono subsets (Latin, Cyrillic, Greek)
 - [ ] WGPU live preview (feature flag exists; implementation is a stub)
 - [ ] All semantic block types from the long-term vision (e.g. dedicated figure flow)
 

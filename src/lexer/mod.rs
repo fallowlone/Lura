@@ -1,6 +1,6 @@
 pub mod token;
 
-pub use token::Token;
+pub use token::{Pos, Token};
 
 #[cfg(test)]
 mod tests;
@@ -35,6 +35,9 @@ pub struct Lexer {
     /// True iff the most recently emitted Ident was `CODE` and no other
     /// structural token has been emitted since.
     last_ident_was_code: bool,
+    block_stack: Vec<bool>, // per open '(': is it a CODE block
+    token_start: usize,     // char offset where the token being read begins
+    starts: Vec<usize>,     // start offset of every token returned by `tokenize`
 }
 
 impl Lexer {
@@ -47,6 +50,9 @@ impl Lexer {
             brace_depth: 0,
             bracket_depth: 0,
             last_ident_was_code: false,
+            block_stack: Vec::new(),
+            token_start: 0,
+            starts: Vec::new(),
         }
     }
 
@@ -55,6 +61,7 @@ impl Lexer {
         loop {
             let token = self.next_token();
             let is_eof = token == Token::Eof;
+            self.starts.push(self.token_start.min(self.input.len()));
             tokens.push(token);
             if is_eof {
                 break;
@@ -255,11 +262,41 @@ impl Lexer {
                 _ => { s.push(self.advance().unwrap()); }
             }
         }
+        if self.in_code() && !s.trim().is_empty() {
+            return Token::Text(s.trim_end().trim_start_matches(['\n', '\r']).to_string());
+        }
         Token::Text(s.trim().to_string())
     }
 
+    /// Source position of every token returned by the last `tokenize` call (same length).
+    pub fn token_positions(&self) -> Vec<Pos> {
+        let mut out = Vec::with_capacity(self.starts.len());
+        let (mut line, mut column, mut at) = (1u32, 1u32, 0usize);
+        for &start in &self.starts {
+            while at < start {
+                if self.input[at] == '\n' {
+                    line += 1;
+                    column = 1;
+                } else {
+                    column += 1;
+                }
+                at += 1;
+            }
+            out.push(Pos { line, column });
+        }
+        out
+    }
+
+    fn in_code(&self) -> bool {
+        self.block_stack.iter().any(|&is_code| is_code)
+    }
+
     fn next_token(&mut self) -> Token {
-        self.skip_whitespace();
+        // Inside CODE, leading whitespace of a line is indentation, not separator.
+        if !(self.mode == Mode::Content && self.in_code()) {
+            self.skip_whitespace();
+        }
+        self.token_start = self.pos;
 
         match self.mode {
             Mode::CodeRaw => {
@@ -269,6 +306,7 @@ impl Lexer {
                     Some(')') => {
                         self.advance();
                         self.paren_depth = self.paren_depth.saturating_sub(1);
+                        self.block_stack.pop();
                         self.mode = if self.paren_depth == 0 { Mode::Normal } else { Mode::Content };
                         Token::RParen
                     }
@@ -300,7 +338,8 @@ impl Lexer {
                     None => Token::Eof,
                     Some(')') => {
                         self.advance();
-                        self.paren_depth -= 1;
+                        self.paren_depth = self.paren_depth.saturating_sub(1);
+                        self.block_stack.pop();
                         if self.paren_depth == 0 {
                             self.mode = Mode::Normal;
                         }
@@ -359,6 +398,7 @@ impl Lexer {
                     Some('(') => {
                         self.advance();
                         self.paren_depth += 1;
+                        self.block_stack.push(self.last_ident_was_code);
                         // peek: if next non-whitespace is { → attrs, else → content
                         let next = self.input[self.pos..].iter()
                             .find(|&&c| !c.is_whitespace())
@@ -381,6 +421,7 @@ impl Lexer {
                     Some(')') => {
                         self.advance();
                         self.paren_depth = self.paren_depth.saturating_sub(1);
+                        self.block_stack.pop();
                         Token::RParen
                     }
                     Some('{') => {

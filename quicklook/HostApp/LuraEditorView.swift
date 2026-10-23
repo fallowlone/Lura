@@ -61,10 +61,17 @@ struct LuraEditorView: View {
     @State private var currentMatchIndex: Int = 0
     @FocusState private var findFieldFocused: Bool
 
-    private var matches: [LuraTextUnit] {
-        guard !findQuery.isEmpty else { return [] }
+    /// Units matching `findQuery`. Kept in state and refreshed only when the query or the
+    /// index changes, instead of re-filtering `textUnits` on every access during a render.
+    @State private var matches: [LuraTextUnit] = []
+
+    private func recomputeMatches() {
+        guard !findQuery.isEmpty else {
+            matches = []
+            return
+        }
         let needle = findQuery.lowercased()
-        return textUnits.filter { $0.text.lowercased().contains(needle) }
+        matches = textUnits.filter { $0.text.lowercased().contains(needle) }
     }
 
     var body: some View {
@@ -162,6 +169,7 @@ struct LuraEditorView: View {
             }
         }
         .onChange(of: findQuery) { _ in
+            recomputeMatches()
             currentMatchIndex = 0
         }
         .onDisappear {
@@ -193,6 +201,7 @@ struct LuraEditorView: View {
         switch LuraRenderFFI.extractText(source: source) {
         case .success(let units):
             textUnits = units
+            recomputeMatches()
             if currentMatchIndex >= matches.count {
                 currentMatchIndex = 0
             }

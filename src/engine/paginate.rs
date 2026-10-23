@@ -556,6 +556,9 @@ impl<'a> Paginator<'a> {
                     )
                 }
             }
+            LayoutContent::Inline(runs) if matches!(node.kind, BoxKind::ListItem) => {
+                self.place_list_item_inline(node_idx, &runs)
+            }
             LayoutContent::Inline(runs) => {
                 let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
                 let justify = styles.justify || styles.text_align == super::styles::TextAlign::Justify;
@@ -569,7 +572,7 @@ impl<'a> Paginator<'a> {
                         word_spacing_pt: styles.word_spacing,
                         base_bold: bold,
                         justify,
-                        base_mono: styles.font_family.eq_ignore_ascii_case("Courier"),
+                        base_mono: super::fonts::is_monospace_family(&styles.font_family),
                     },
                 );
                 self.paint_inline_lines_paginated(
@@ -668,7 +671,6 @@ impl<'a> Paginator<'a> {
             lines.iter().map(|l| l.line_height_pt),
             padding_top,
         );
-        let italic = styles.font_style == FontStyle::Italic;
         let mut total = 0.0f32;
         for (idx, (a, b)) in segments.iter().enumerate() {
             let is_first = idx == 0;
@@ -693,18 +695,7 @@ impl<'a> Paginator<'a> {
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
                 let y = seg_top + seg_lead + styles.font_size + k as f32 * line.line_height_pt;
-                self.push_cmd(DrawCommand::Text {
-                    content: line.text.clone(),
-                    x: block_x + padding_left,
-                    y,
-                    font_size: styles.font_size,
-                    font_family: styles.font_family.clone(),
-                    bold,
-                    italic,
-                    color: styles.color,
-                    link_uri: None,
-                    link_width_pt: None,
-                });
+                self.push_text_line(line, block_x + padding_left, y, styles, bold);
             }
             self.cursor_y = seg_top + seg_lead + seg_h + seg_tail;
             total += seg_lead + seg_h + seg_tail;
@@ -730,7 +721,6 @@ impl<'a> Paginator<'a> {
             lines.iter().map(|l| l.line_height_pt),
             padding_top,
         );
-        let italic_base = styles.font_style == FontStyle::Italic;
         let mut total = 0.0f32;
         for (idx, (a, b)) in segments.iter().enumerate() {
             let is_first = idx == 0;
@@ -755,36 +745,80 @@ impl<'a> Paginator<'a> {
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
                 let baseline_y = seg_top + seg_lead + styles.font_size + k as f32 * line.line_height_pt;
-                let mut x_cursor = block_x + padding_left;
-                for frag in &line.fragments {
-                    let font_family = if frag.code {
-                        "Courier".to_string()
-                    } else {
-                        styles.font_family.clone()
-                    };
-                    self.push_cmd(DrawCommand::Text {
-                        content: frag.text.clone(),
-                        x: x_cursor,
-                        y: baseline_y,
-                        font_size: styles.font_size,
-                        font_family,
-                        bold: bold || frag.bold,
-                        italic: italic_base || frag.italic,
-                        color: if frag.link.is_some() {
-                            Color::from_hex(0x1D4ED8)
-                        } else {
-                            styles.color
-                        },
-                        link_uri: frag.link.clone(),
-                        link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                    });
-                    x_cursor += frag.width;
-                }
+                self.push_inline_line(line, block_x + padding_left, baseline_y, styles, bold);
             }
             self.cursor_y = seg_top + seg_lead + seg_h + seg_tail;
             total += seg_lead + seg_h + seg_tail;
         }
         total
+    }
+
+    /// One line of plain text at `(x, baseline_y)`.
+    fn push_text_line(
+        &mut self,
+        line: &TextLine,
+        x: f32,
+        baseline_y: f32,
+        styles: &super::styles::ResolvedStyles,
+        bold: bool,
+    ) {
+        self.push_cmd(DrawCommand::Text {
+            content: line.text.clone(),
+            x,
+            y: baseline_y,
+            font_size: styles.font_size,
+            font_family: styles.font_family.clone(),
+            bold,
+            italic: styles.font_style == FontStyle::Italic,
+            color: styles.color,
+            link_uri: None,
+            link_width_pt: None,
+        });
+    }
+
+    /// One line of styled fragments starting at `(x, baseline_y)`. Links are blue and underlined,
+    /// so they do not rely on color alone.
+    fn push_inline_line(
+        &mut self,
+        line: &InlineLine,
+        x: f32,
+        baseline_y: f32,
+        styles: &super::styles::ResolvedStyles,
+        bold: bool,
+    ) {
+        let link_color = Color::from_hex(0x1D4ED8);
+        let mut x_cursor = x;
+        for frag in &line.fragments {
+            let font_family = if frag.code {
+                "Courier".to_string()
+            } else {
+                styles.font_family.clone()
+            };
+            self.push_cmd(DrawCommand::Text {
+                content: frag.text.clone(),
+                x: x_cursor,
+                y: baseline_y,
+                font_size: styles.font_size,
+                font_family,
+                bold: bold || frag.bold,
+                italic: (styles.font_style == FontStyle::Italic) || frag.italic,
+                color: if frag.link.is_some() { link_color } else { styles.color },
+                link_uri: frag.link.clone(),
+                link_width_pt: frag.link.as_ref().map(|_| frag.width),
+            });
+            if frag.link.is_some() && !frag.text.trim().is_empty() {
+                let underline_y = baseline_y + 1.0;
+                self.push_cmd(DrawCommand::Line {
+                    x1: x_cursor,
+                    y1: underline_y,
+                    x2: x_cursor + frag.width.max(0.0),
+                    y2: underline_y,
+                    color: link_color,
+                    width: 0.5,
+                });
+            }
+            x_cursor += frag.width;
+        }
     }
 
     /// Given a sequence of per-line heights, compute (start_idx, end_idx) segment
@@ -819,38 +853,24 @@ impl<'a> Paginator<'a> {
 
     // --- List item with bullet ---
 
+    /// Plain-text item: the same path as inline content, with one unstyled run.
     fn place_list_item(&mut self, node_idx: LayoutNodeIdx, text: &str) -> f32 {
+        let run = InlineRun { text: text.to_string(), bold: false, italic: false, code: false, link: None };
+        self.place_list_item_inline(node_idx, &[run])
+    }
+
+    /// Marker ("•" or "1.") to the left of the item, aligned with the first baseline.
+    fn push_list_marker(&mut self, node_idx: LayoutNodeIdx) {
         let node = self.layout.nodes[node_idx].clone();
         let styles = self.styled.get(node.arena_id).styles.clone();
-        let bold = styles.font_weight == FontWeight::Bold;
-
-        let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
-        let lines = break_text(
-            text,
-            width,
-            styles.font_size,
-            styles.line_height,
-            bold,
-            styles.letter_spacing,
-            styles.word_spacing,
-        );
-        let block_h = text_block_height(&lines);
-
-        if self.cursor_y + block_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
-            self.new_page();
-        }
-
-        // Bullet "•" or "1." to the left of text start
-        let bullet_text = match self.list_item_counter {
+        let content = match self.list_item_counter {
             Some(n) => format!("{}.", n),
             None => "\u{2022}".to_string(),
         };
-        let bullet_x = node.x - 4.5 * MM_TO_PT;
-        let bullet_y = self.cursor_y + styles.font_size;
         self.push_cmd(DrawCommand::Text {
-            content: bullet_text,
-            x: bullet_x,
-            y: bullet_y,
+            content,
+            x: node.x - 4.5 * MM_TO_PT,
+            y: self.cursor_y + styles.font_size,
             font_size: styles.font_size,
             font_family: styles.font_family.clone(),
             bold: false,
@@ -859,28 +879,6 @@ impl<'a> Paginator<'a> {
             link_uri: None,
             link_width_pt: None,
         });
-
-        for (i, line) in lines.iter().enumerate() {
-            let y = self.cursor_y + styles.font_size + i as f32 * line.line_height_pt;
-            if y > CONTENT_BOTTOM {
-                break;
-            }
-            self.push_cmd(DrawCommand::Text {
-                content: line.text.clone(),
-                x: node.x,
-                y,
-                font_size: styles.font_size,
-                font_family: styles.font_family.clone(),
-                bold,
-                italic: styles.font_style == FontStyle::Italic,
-                color: styles.color,
-                link_uri: None,
-                link_width_pt: None,
-            });
-        }
-
-        self.cursor_y += block_h;
-        block_h
     }
 
     /// `ITEM(P(...))` and similar: layout has children, not direct text — draw marker + body.
@@ -902,6 +900,9 @@ impl<'a> Paginator<'a> {
                 _ => {}
             }
         }
+        // Several blocks (or a nested list): draw the marker once, beside the first one.
+        self.push_list_marker(list_item_idx);
+        self.list_item_counter = None; // nested lists number from their own parent
         let mut total = 0.0f32;
         for child_idx in child_indices {
             total += self.place_node(child_idx);
@@ -925,7 +926,7 @@ impl<'a> Paginator<'a> {
                 word_spacing_pt: styles.word_spacing,
                 base_bold: bold,
                 justify,
-                base_mono: styles.font_family.eq_ignore_ascii_case("Courier"),
+                base_mono: super::fonts::is_monospace_family(&styles.font_family),
             },
         );
         let block_h = inline_lines_block_height(&lines, styles.font_size, styles.line_height);
@@ -934,24 +935,7 @@ impl<'a> Paginator<'a> {
             self.new_page();
         }
 
-        let bullet_text = match self.list_item_counter {
-            Some(n) => format!("{}.", n),
-            None => "\u{2022}".to_string(),
-        };
-        let bullet_x = node.x - 4.5 * MM_TO_PT;
-        let bullet_y = self.cursor_y + styles.font_size;
-        self.push_cmd(DrawCommand::Text {
-            content: bullet_text,
-            x: bullet_x,
-            y: bullet_y,
-            font_size: styles.font_size,
-            font_family: styles.font_family.clone(),
-            bold: false,
-            italic: false,
-            color: styles.color,
-            link_uri: None,
-            link_width_pt: None,
-        });
+        self.push_list_marker(list_item_idx);
 
         for (line_idx, line) in lines.iter().enumerate() {
             let baseline_y =
@@ -959,42 +943,7 @@ impl<'a> Paginator<'a> {
             if baseline_y > CONTENT_BOTTOM {
                 break;
             }
-            let mut x_cursor = node.x;
-            for frag in &line.fragments {
-                let frag_font_family = if frag.code {
-                    "Courier".to_string()
-                } else {
-                    styles.font_family.clone()
-                };
-                self.push_cmd(DrawCommand::Text {
-                    content: frag.text.clone(),
-                    x: x_cursor,
-                    y: baseline_y,
-                    font_size: styles.font_size,
-                    font_family: frag_font_family,
-                    bold: bold || frag.bold,
-                    italic: (styles.font_style == FontStyle::Italic) || frag.italic,
-                    color: if frag.link.is_some() {
-                        Color::from_hex(0x1D4ED8)
-                    } else {
-                        styles.color
-                    },
-                    link_uri: frag.link.clone(),
-                    link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                });
-                if frag.link.is_some() && !frag.text.trim().is_empty() {
-                    let underline_y = baseline_y + 1.0;
-                    self.push_cmd(DrawCommand::Line {
-                        x1: x_cursor,
-                        y1: underline_y,
-                        x2: x_cursor + frag.width.max(0.0),
-                        y2: underline_y,
-                        color: Color::from_hex(0x1D4ED8),
-                        width: 0.5,
-                    });
-                }
-                x_cursor += frag.width;
-            }
+            self.push_inline_line(line, node.x, baseline_y, &styles, bold);
         }
 
         self.cursor_y += block_h;
@@ -1172,58 +1121,15 @@ impl<'a> Paginator<'a> {
                 .map(|(&ci, &(_col_idx, cell_w))| {
                     let cell = &self.layout.nodes[ci];
                     let cell_styles = self.styled.get(cell.arena_id).styles.clone();
-                    let bold = cell_styles.font_weight == FontWeight::Bold;
                     let pad_v = cell_styles.padding.top * MM_TO_PT
                         + cell_styles.padding.bottom * MM_TO_PT;
                     let one_line_h = cell_styles.font_size * cell_styles.line_height;
                     match &cell.content {
-                        LayoutContent::Text(t) => {
+                        LayoutContent::Text(_) | LayoutContent::Inline(_) => {
                             if cell_styles.nowrap || cell_styles.truncate {
                                 one_line_h + pad_v
                             } else {
-                                let w = text_container_width_pt(
-                                    cell_w,
-                                    cell_styles.padding.left,
-                                    cell_styles.padding.right,
-                                );
-                                let lines = break_text(
-                                    t,
-                                    w,
-                                    cell_styles.font_size,
-                                    cell_styles.line_height,
-                                    bold,
-                                    cell_styles.letter_spacing,
-                                    cell_styles.word_spacing,
-                                );
-                                text_block_height(&lines) + pad_v
-                            }
-                        }
-                        LayoutContent::Inline(runs) => {
-                            if cell_styles.nowrap || cell_styles.truncate {
-                                one_line_h + pad_v
-                            } else {
-                                let w = text_container_width_pt(
-                                    cell_w,
-                                    cell_styles.padding.left,
-                                    cell_styles.padding.right,
-                                );
-                                let justify = cell_styles.justify
-                                    || cell_styles.text_align == TextAlign::Justify;
-                                inline_runs_block_height(
-                                    runs,
-                                    w,
-                                    &TextLayoutOpts {
-                                        font_size_pt: cell_styles.font_size,
-                                        line_height: cell_styles.line_height,
-                                        letter_spacing_pt: cell_styles.letter_spacing,
-                                        word_spacing_pt: cell_styles.word_spacing,
-                                        base_bold: bold,
-                                        justify,
-                                        base_mono: cell_styles
-                                            .font_family
-                                            .eq_ignore_ascii_case("Courier"),
-                                    },
-                                ) + pad_v
+                                wrapped_text_height(&cell.content, &cell_styles, cell_w) + pad_v
                             }
                         }
                         LayoutContent::Children(children) => {
@@ -1323,132 +1229,7 @@ impl<'a> Paginator<'a> {
                     });
                 }
 
-                // Lay out text lines first (so `content_h` is known for vertical align).
-                // For nowrap/truncate we build a single line manually and skip break_*.
-                enum CellLines {
-                    Plain(Vec<TextLine>),
-                    Inline(Vec<InlineLine>),
-                    Children,
-                    None,
-                }
-
-                let cell_lines = match &cell.content {
-                    LayoutContent::Text(text) => {
-                        if cell_styles.nowrap {
-                            let t = text.replace('\n', " ");
-                            let w = text_width_pt_with_spacing(
-                                &t,
-                                cell_styles.font_size,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            );
-                            CellLines::Plain(vec![TextLine {
-                                text: t,
-                                width: w,
-                                line_height_pt: cell_styles.font_size * cell_styles.line_height,
-                                font_size: cell_styles.font_size,
-                            }])
-                        } else if cell_styles.truncate {
-                            let t = text.replace('\n', " ");
-                            let clipped = truncate_to_width(
-                                &t,
-                                inner_w,
-                                cell_styles.font_size,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            );
-                            let w = text_width_pt_with_spacing(
-                                &clipped,
-                                cell_styles.font_size,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            );
-                            CellLines::Plain(vec![TextLine {
-                                text: clipped,
-                                width: w,
-                                line_height_pt: cell_styles.font_size * cell_styles.line_height,
-                                font_size: cell_styles.font_size,
-                            }])
-                        } else {
-                            CellLines::Plain(break_text(
-                                text,
-                                inner_w,
-                                cell_styles.font_size,
-                                cell_styles.line_height,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            ))
-                        }
-                    }
-                    LayoutContent::Inline(runs) => {
-                        let justify = cell_styles.justify
-                            || cell_styles.text_align == TextAlign::Justify;
-                        let base_mono_cell =
-                            cell_styles.font_family.eq_ignore_ascii_case("Courier");
-                        if cell_styles.nowrap {
-                            // Ask break_inline_runs for a very wide width so it never wraps.
-                            CellLines::Inline(break_inline_runs(
-                                runs,
-                                f32::MAX / 4.0,
-                                &TextLayoutOpts {
-                                    font_size_pt: cell_styles.font_size,
-                                    line_height: cell_styles.line_height,
-                                    letter_spacing_pt: cell_styles.letter_spacing,
-                                    word_spacing_pt: cell_styles.word_spacing,
-                                    base_bold: bold,
-                                    justify: false,
-                                    base_mono: base_mono_cell,
-                                },
-                            ))
-                        } else if cell_styles.truncate {
-                            let all = break_inline_runs(
-                                runs,
-                                f32::MAX / 4.0,
-                                &TextLayoutOpts {
-                                    font_size_pt: cell_styles.font_size,
-                                    line_height: cell_styles.line_height,
-                                    letter_spacing_pt: cell_styles.letter_spacing,
-                                    word_spacing_pt: cell_styles.word_spacing,
-                                    base_bold: bold,
-                                    justify: false,
-                                    base_mono: base_mono_cell,
-                                },
-                            );
-                            let mut first_line = all.into_iter().next();
-                            if let Some(line) = first_line.as_mut() {
-                                truncate_inline_line(
-                                    line,
-                                    inner_w,
-                                    cell_styles.font_size,
-                                    bold,
-                                    cell_styles.letter_spacing,
-                                    cell_styles.word_spacing,
-                                );
-                            }
-                            CellLines::Inline(first_line.into_iter().collect())
-                        } else {
-                            CellLines::Inline(break_inline_runs(
-                                runs,
-                                inner_w,
-                                &TextLayoutOpts {
-                                    font_size_pt: cell_styles.font_size,
-                                    line_height: cell_styles.line_height,
-                                    letter_spacing_pt: cell_styles.letter_spacing,
-                                    word_spacing_pt: cell_styles.word_spacing,
-                                    base_bold: bold,
-                                    justify,
-                                    base_mono: base_mono_cell,
-                                },
-                            ))
-                        }
-                    }
-                    LayoutContent::Children(_) => CellLines::Children,
-                    LayoutContent::Empty => CellLines::None,
-                };
+                let cell_lines = layout_cell_lines(&cell.content, &cell_styles, inner_w, bold);
 
                 // Content height for vertical-align shift.
                 let content_h = match &cell_lines {
@@ -1487,18 +1268,7 @@ impl<'a> Paginator<'a> {
                                 break;
                             }
                             let x_off = align_offset(effective_align, inner_w, line.width);
-                            self.push_cmd(DrawCommand::Text {
-                                content: line.text.clone(),
-                                x: cell_x + padding_left + x_off,
-                                y,
-                                font_size: cell_styles.font_size,
-                                font_family: cell_styles.font_family.clone(),
-                                bold,
-                                italic: cell_styles.font_style == FontStyle::Italic,
-                                color: cell_styles.color,
-                                link_uri: None,
-                                link_width_pt: None,
-                            });
+                            self.push_text_line(line, cell_x + padding_left + x_off, y, &cell_styles, bold);
                         }
                     }
                     CellLines::Inline(lines) => {
@@ -1510,32 +1280,8 @@ impl<'a> Paginator<'a> {
                                 break;
                             }
                             let x_off = align_offset(effective_align, inner_w, line.width);
-                            let mut x_cursor = cell_x + padding_left + x_off;
-                            for frag in &line.fragments {
-                                let font_family = if frag.code {
-                                    "Courier".to_string()
-                                } else {
-                                    cell_styles.font_family.clone()
-                                };
-                                self.push_cmd(DrawCommand::Text {
-                                    content: frag.text.clone(),
-                                    x: x_cursor,
-                                    y: baseline_y,
-                                    font_size: cell_styles.font_size,
-                                    font_family,
-                                    bold: bold || frag.bold,
-                                    italic: (cell_styles.font_style == FontStyle::Italic)
-                                        || frag.italic,
-                                    color: if frag.link.is_some() {
-                                        Color::from_hex(0x1D4ED8)
-                                    } else {
-                                        cell_styles.color
-                                    },
-                                    link_uri: frag.link.clone(),
-                                    link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                                });
-                                x_cursor += frag.width;
-                            }
+                            let x = cell_x + padding_left + x_off;
+                            self.push_inline_line(line, x, baseline_y, &cell_styles, bold);
                         }
                     }
                     CellLines::Children => {
@@ -1601,46 +1347,9 @@ impl<'a> Paginator<'a> {
         {
             Self::figure_placeholder_height_pt(&styles)
         } else {
-            let bold = styles.font_weight == FontWeight::Bold;
             match &node.content {
-                LayoutContent::Text(t) => {
-                    let w = text_container_width_pt(
-                        node.width,
-                        styles.padding.left,
-                        styles.padding.right,
-                    );
-                    let lines = break_text(
-                        t,
-                        w,
-                        styles.font_size,
-                        styles.line_height,
-                        bold,
-                        styles.letter_spacing,
-                        styles.word_spacing,
-                    );
-                    text_block_height(&lines)
-                }
-                LayoutContent::Inline(runs) => {
-                    let w = text_container_width_pt(
-                        node.width,
-                        styles.padding.left,
-                        styles.padding.right,
-                    );
-                    let justify =
-                        styles.justify || styles.text_align == super::styles::TextAlign::Justify;
-                    inline_runs_block_height(
-                        runs,
-                        w,
-                        &TextLayoutOpts {
-                            font_size_pt: styles.font_size,
-                            line_height: styles.line_height,
-                            letter_spacing_pt: styles.letter_spacing,
-                            word_spacing_pt: styles.word_spacing,
-                            base_bold: bold,
-                            justify,
-                            base_mono: styles.font_family.eq_ignore_ascii_case("Courier"),
-                        },
-                    )
+                LayoutContent::Text(_) | LayoutContent::Inline(_) => {
+                    wrapped_text_height(&node.content, &styles, node.width)
                 }
                 LayoutContent::Children(children) => {
                     children.iter().map(|&ci| self.estimate_height(ci)).sum()
@@ -1654,6 +1363,177 @@ impl<'a> Paginator<'a> {
 }
 
 // --- Cell-paint helpers ---
+
+/// Height of wrapped text or inline content in a box `width_bb` wide (horizontal padding is
+/// taken off for line breaking, vertical padding and margins are not included).
+fn wrapped_text_height(
+    content: &LayoutContent,
+    styles: &super::styles::ResolvedStyles,
+    width_bb: f32,
+) -> f32 {
+    let w = text_container_width_pt(width_bb, styles.padding.left, styles.padding.right);
+    let bold = styles.font_weight == FontWeight::Bold;
+    match content {
+        LayoutContent::Text(t) => text_block_height(&break_text(
+            t,
+            w,
+            styles.font_size,
+            styles.line_height,
+            bold,
+            styles.letter_spacing,
+            styles.word_spacing,
+        )),
+        LayoutContent::Inline(runs) => inline_runs_block_height(
+            runs,
+            w,
+            &TextLayoutOpts {
+                font_size_pt: styles.font_size,
+                line_height: styles.line_height,
+                letter_spacing_pt: styles.letter_spacing,
+                word_spacing_pt: styles.word_spacing,
+                base_bold: bold,
+                justify: styles.justify || styles.text_align == TextAlign::Justify,
+                base_mono: super::fonts::is_monospace_family(&styles.font_family),
+            },
+        ),
+        LayoutContent::Children(_) | LayoutContent::Empty => 0.0,
+    }
+}
+
+/// Text of one table cell after wrapping (or the single line for nowrap/truncate).
+enum CellLines {
+    Plain(Vec<TextLine>),
+    Inline(Vec<InlineLine>),
+    Children,
+    None,
+}
+
+/// Lay out a cell's text first, so the content height is known for vertical alignment.
+/// For nowrap/truncate a single line is built manually and `break_*` is skipped.
+fn layout_cell_lines(
+    content: &LayoutContent,
+    cell_styles: &super::styles::ResolvedStyles,
+    inner_w: f32,
+    bold: bool,
+) -> CellLines {
+    let base_mono_cell = super::fonts::is_monospace_family(&cell_styles.font_family);
+    match content {
+        LayoutContent::Text(text) => {
+            if cell_styles.nowrap {
+                let t = text.replace('\n', " ");
+                let w = text_width_pt_with_spacing(
+                    &t,
+                    cell_styles.font_size,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                CellLines::Plain(vec![TextLine {
+                    text: t,
+                    width: w,
+                    line_height_pt: cell_styles.font_size * cell_styles.line_height,
+                    font_size: cell_styles.font_size,
+                }])
+            } else if cell_styles.truncate {
+                let t = text.replace('\n', " ");
+                let clipped = truncate_to_width(
+                    &t,
+                    inner_w,
+                    cell_styles.font_size,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                let w = text_width_pt_with_spacing(
+                    &clipped,
+                    cell_styles.font_size,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                CellLines::Plain(vec![TextLine {
+                    text: clipped,
+                    width: w,
+                    line_height_pt: cell_styles.font_size * cell_styles.line_height,
+                    font_size: cell_styles.font_size,
+                }])
+            } else {
+                CellLines::Plain(break_text(
+                    text,
+                    inner_w,
+                    cell_styles.font_size,
+                    cell_styles.line_height,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                ))
+            }
+        }
+        LayoutContent::Inline(runs) => {
+            let justify = cell_styles.justify
+                || cell_styles.text_align == TextAlign::Justify;
+            if cell_styles.nowrap {
+                // Ask break_inline_runs for a very wide width so it never wraps.
+                CellLines::Inline(break_inline_runs(
+                    runs,
+                    f32::MAX / 4.0,
+                    &TextLayoutOpts {
+                        font_size_pt: cell_styles.font_size,
+                        line_height: cell_styles.line_height,
+                        letter_spacing_pt: cell_styles.letter_spacing,
+                        word_spacing_pt: cell_styles.word_spacing,
+                        base_bold: bold,
+                        justify: false,
+                        base_mono: base_mono_cell,
+                    },
+                ))
+            } else if cell_styles.truncate {
+                let all = break_inline_runs(
+                    runs,
+                    f32::MAX / 4.0,
+                    &TextLayoutOpts {
+                        font_size_pt: cell_styles.font_size,
+                        line_height: cell_styles.line_height,
+                        letter_spacing_pt: cell_styles.letter_spacing,
+                        word_spacing_pt: cell_styles.word_spacing,
+                        base_bold: bold,
+                        justify: false,
+                        base_mono: base_mono_cell,
+                    },
+                );
+                let mut first_line = all.into_iter().next();
+                if let Some(line) = first_line.as_mut() {
+                    truncate_inline_line(
+                        line,
+                        inner_w,
+                        cell_styles.font_size,
+                        bold,
+                        cell_styles.letter_spacing,
+                        cell_styles.word_spacing,
+                    );
+                }
+                CellLines::Inline(first_line.into_iter().collect())
+            } else {
+                CellLines::Inline(break_inline_runs(
+                    runs,
+                    inner_w,
+                    &TextLayoutOpts {
+                        font_size_pt: cell_styles.font_size,
+                        line_height: cell_styles.line_height,
+                        letter_spacing_pt: cell_styles.letter_spacing,
+                        word_spacing_pt: cell_styles.word_spacing,
+                        base_bold: bold,
+                        justify,
+                        base_mono: base_mono_cell,
+                    },
+                ))
+            }
+        }
+        LayoutContent::Children(_) => CellLines::Children,
+        LayoutContent::Empty => CellLines::None,
+    }
+}
+
 
 fn align_offset(align: TextAlign, inner_w: f32, line_w: f32) -> f32 {
     if line_w >= inner_w {

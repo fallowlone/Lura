@@ -4,38 +4,7 @@ pub mod renderer;
 pub mod engine;
 
 use std::ffi::{CStr, CString};
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Write;
 use std::os::raw::c_char;
-
-// #region agent log
-fn lura_agent_debug_ffi_line(content: &str, pdf: &[u8]) {
-    let mut sh = DefaultHasher::new();
-    content.hash(&mut sh);
-    let src_h = sh.finish();
-    let mut ph = DefaultHasher::new();
-    pdf.len().hash(&mut ph);
-    let prefix = pdf.len().min(8192);
-    pdf[..prefix].hash(&mut ph);
-    let pdf_h = ph.finish();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let line = format!(
-        "{{\"sessionId\":\"8cc234\",\"hypothesisId\":\"H2\",\"location\":\"src/lib.rs:parse_and_render_pdf\",\"message\":\"ffi_render_ok\",\"data\":{{\"src_len\":{},\"pdf_len\":{},\"src_hash\":\"{:x}\",\"pdf_prefix_hash\":\"{:x}\"}},\"timestamp\":{}}}\n",
-        content.len(),
-        pdf.len(),
-        src_h,
-        pdf_h,
-        ts
-    );
-    let path = "/Users/artemmac/programming/personal/lura/.cursor/debug-8cc234.log";
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
-// #endregion
 
 /// Outcome of [`lura_render_pdf`]: either PDF bytes or a UTF-8 error message (parse/layout).
 ///
@@ -79,13 +48,27 @@ pub unsafe extern "C" fn lura_render_pdf(content_ptr: *const c_char) -> *mut Lur
         }
     };
 
-    Box::into_raw(Box::new(parse_and_render_pdf(content)))
+    Box::into_raw(Box::new(guard_panics(|| parse_and_render_pdf(content))))
+}
+
+/// A panic must not unwind across the C boundary (that aborts the host process, e.g. Quick Look).
+fn guard_panics(render: impl FnOnce() -> LuraPdfResult) -> LuraPdfResult {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(render)).unwrap_or_else(|_| {
+        LuraPdfResult {
+            pdf_ptr: std::ptr::null_mut(),
+            pdf_len: 0,
+            pdf_cap: 0,
+            error_ptr: CString::new("Internal error while rendering the document")
+                .expect("static C string")
+                .into_raw(),
+        }
+    })
 }
 
 fn parse_and_render_pdf(content: &str) -> LuraPdfResult {
     let mut lex_engine = lexer::Lexer::new(content);
     let tokens = lex_engine.tokenize();
-    let mut parse_engine = parser::Parser::new(tokens);
+    let mut parse_engine = parser::Parser::new(tokens).with_positions(lex_engine.token_positions());
 
     let mut doc = match parse_engine.parse() {
         Ok(d) => d,
@@ -119,9 +102,6 @@ fn parse_and_render_pdf(content: &str) -> LuraPdfResult {
         };
     } else {
         let mut pdf = pdf;
-        // #region agent log
-        lura_agent_debug_ffi_line(content, pdf.as_slice());
-        // #endregion
         let pdf_len = pdf.len();
         let pdf_cap = pdf.capacity();
         let pdf_ptr = pdf.as_mut_ptr();
@@ -326,6 +306,15 @@ mod ffi_tests {
         assert_eq!(json_len, 0);
         assert!(!error_ptr.is_null());
         unsafe { lura_free_text_index_result(ptr); }
+    }
+
+    #[test]
+    fn panic_during_render_becomes_an_error_result() {
+        let r = guard_panics(|| panic!("boom"));
+        assert_eq!(r.pdf_len, 0);
+        assert!(r.pdf_ptr.is_null());
+        let msg = unsafe { CString::from_raw(r.error_ptr) };
+        assert!(msg.to_str().unwrap().contains("Internal error"));
     }
 
     #[test]

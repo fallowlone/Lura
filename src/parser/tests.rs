@@ -1,4 +1,5 @@
 use super::{ast::*, id, resolver, Parser};
+use crate::lexer::Token;
 use crate::lexer::Lexer;
 
 fn parse(input: &str) -> Document {
@@ -246,4 +247,78 @@ fn code_with_explicit_id_still_parses_raw_body() {
         }
         other => panic!("expected raw Content::Text, got {:?}", other),
     }
+}
+
+fn all_ids(doc: &Document) -> Vec<String> {
+    fn walk(doc: &Document, id: NodeId, out: &mut Vec<String>) {
+        out.push(doc.block(id).id.clone());
+        for &c in doc.children_ids(id) {
+            walk(doc, c, out);
+        }
+    }
+    let mut out = Vec::new();
+    for &r in doc.root_ids() {
+        walk(doc, r, &mut out);
+    }
+    out
+}
+
+#[test]
+fn test_identical_blocks_get_unique_ids() {
+    let doc = parse("PAGE(P(Yes) P(Yes) P(Yes))");
+    let ids = all_ids(&doc);
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "duplicate ids: {ids:?}");
+    // The first occurrence keeps the plain content hash; later ones are numbered in document order.
+    assert!(ids[2].ends_with("-2") && ids[3].ends_with("-3"), "{ids:?}");
+}
+
+#[test]
+fn test_auto_id_never_takes_an_explicit_id() {
+    let plain = parse("PAGE(P(Yes))");
+    let taken = plain.block(plain.children_ids(plain.root_ids()[0])[0]).id.clone();
+    let doc = parse(&format!("PAGE(P(Yes) P[{taken}](other))"));
+    let ids = all_ids(&doc);
+    assert_eq!(ids.iter().filter(|i| **i == taken).count(), 1, "{ids:?}");
+}
+
+#[test]
+fn test_duplicate_explicit_ids_are_reported() {
+    let mut lexer = Lexer::new("PAGE(P[a](x) P[a](y) P[b](z) P[b](w) P[c](v))");
+    let doc = Parser::new(lexer.tokenize()).parse().expect("parse failed");
+    assert_eq!(id::duplicate_explicit_ids(&doc), ["a", "b"]);
+}
+
+fn parse_err(input: &str) -> String {
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.tokenize();
+    let positions = lexer.token_positions();
+    Parser::new(tokens)
+        .with_positions(positions)
+        .parse()
+        .expect_err("expected a parse error")
+}
+
+#[test]
+fn test_parse_error_names_line_and_column() {
+    let err = parse_err("PAGE(\n  LIST(\n    ITEM(a LIST(x))\n  )\n)");
+    assert!(err.contains("line 3, column 12"), "{err}");
+    assert!(err.contains("expected ')'") && err.contains("LIST"), "{err}");
+}
+
+#[test]
+fn test_parse_error_at_end_of_input_points_at_the_end() {
+    let err = parse_err("PAGE(\n  P(a)");
+    assert!(err.contains("line 2"), "{err}");
+}
+
+#[test]
+fn test_positions_are_one_based_and_count_characters() {
+    let mut lexer = Lexer::new("P(Привет)\nH1(x)");
+    let tokens = lexer.tokenize();
+    let pos = lexer.token_positions();
+    assert_eq!(tokens.len(), pos.len());
+    let last_ident = tokens.iter().rposition(|t| matches!(t, Token::Ident(_))).unwrap();
+    assert_eq!((pos[last_ident].line, pos[last_ident].column), (2, 1));
+    assert_eq!((pos[0].line, pos[0].column), (1, 1));
 }

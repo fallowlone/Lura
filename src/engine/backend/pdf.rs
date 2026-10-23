@@ -4,7 +4,7 @@
 /// Uses the `pdf-writer` crate: low-level but fast.
 ///
 /// Supported commands:
-/// - `Text`  → PDF BT ... ET (built-in Type1: Helvetica family + Courier family, incl. oblique)
+/// - `Text`  → PDF BT ... ET (embedded Liberation Sans/Mono subsets as Type0/CIDFontType2, see `pdf_fonts`)
 /// - `Rect`  → PDF re + f/S
 /// - `Line`  → PDF m + l + S
 /// - `PushOpacity` / `PopOpacity` → `q` / `Q` + `ExtGState` (`ca` / `CA`)
@@ -15,8 +15,11 @@
 /// PageTree:   top-left = (0,0), Y increases downward.
 /// Conversion: `pdf_y = page_height - our_y`
 use pdf_writer::types::{ActionType, AnnotationType};
-use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
+use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
+use crate::engine::fonts;
 use crate::engine::paginate::{PageTree, AnchorPosition};
+use super::flate::zlib_compress;
+use super::pdf_fonts::{self, FontSet};
 use super::painter::{from_page_tree, PaintDocument, PainterBackend, PainterCommand};
 use std::collections::HashMap;
 
@@ -94,14 +97,6 @@ impl PdfBackend {
 
         let catalog_id = alloc.next();
         let pages_id = alloc.next();
-        let f_helvetica = alloc.next();
-        let f_helvetica_bold = alloc.next();
-        let f_helvetica_oblique = alloc.next();
-        let f_helvetica_bold_oblique = alloc.next();
-        let f_courier = alloc.next();
-        let f_courier_bold = alloc.next();
-        let f_courier_oblique = alloc.next();
-        let f_courier_bold_oblique = alloc.next();
 
         let mut page_ids: Vec<Ref> = Vec::new();
         let mut content_ids: Vec<Ref> = Vec::new();
@@ -152,21 +147,19 @@ impl PdfBackend {
             pages.count(page_ids.len() as i32);
         }
 
-        // --- Built-in Type1 fonts (PDF 1.7 standard 14 subset we use) ---
-        for (id, name) in [
-            (f_helvetica, b"Helvetica" as &[u8]),
-            (f_helvetica_bold, b"Helvetica-Bold"),
-            (f_helvetica_oblique, b"Helvetica-Oblique"),
-            (f_helvetica_bold_oblique, b"Helvetica-BoldOblique"),
-            (f_courier, b"Courier"),
-            (f_courier_bold, b"Courier-Bold"),
-            (f_courier_oblique, b"Courier-Oblique"),
-            (f_courier_bold_oblique, b"Courier-BoldOblique"),
-        ] {
-            pdf.type1_font(id)
-                .base_font(Name(name))
-                .encoding_predefined(Name(b"WinAnsiEncoding"));
-        }
+        // --- Content streams first: they decide which glyphs each embedded face needs ---
+        let mut font_set = FontSet::new();
+        let contents: Vec<pdf_writer::Buf> = doc
+            .pages
+            .iter()
+            .zip(&page_opacity)
+            .map(|(page, (alphas, _, gs_names))| {
+                build_content_stream(page.height, &page.commands, alphas, gs_names, &mut font_set)
+            })
+            .collect();
+        let Some(font_refs) = font_set.write(&mut pdf, || alloc.next()) else {
+            return Vec::new();
+        };
 
         // --- Pages ---
         for (i, page) in doc.pages.iter().enumerate() {
@@ -186,14 +179,9 @@ impl PdfBackend {
                 let mut res = p.resources();
                 {
                     let mut fonts = res.fonts();
-                    fonts.pair(Name(b"F1"), f_helvetica);
-                    fonts.pair(Name(b"F2"), f_helvetica_bold);
-                    fonts.pair(Name(b"F3"), f_helvetica_oblique);
-                    fonts.pair(Name(b"F4"), f_helvetica_bold_oblique);
-                    fonts.pair(Name(b"F5"), f_courier);
-                    fonts.pair(Name(b"F6"), f_courier_bold);
-                    fonts.pair(Name(b"F7"), f_courier_oblique);
-                    fonts.pair(Name(b"F8"), f_courier_bold_oblique);
+                    for &(slot, font_ref) in &font_refs {
+                        fonts.pair(pdf_fonts::resource_name(slot), font_ref);
+                    }
                 }
                 if !alphas.is_empty() {
                     let mut ext = res.ext_g_states();
@@ -203,8 +191,8 @@ impl PdfBackend {
                 }
             }
 
-            let buf = build_content_stream(page.height, &page.commands, alphas, gs_names);
-            pdf.stream(content_id, buf.as_slice());
+            pdf.stream(content_id, &zlib_compress(contents[i].as_slice()))
+                .filter(Filter::FlateDecode);
         }
 
         // --- Link annotations with GoTo support for internal anchors ---
@@ -294,6 +282,7 @@ fn build_content_stream(
     commands: &[PainterCommand],
     opacity_alphas: &[f32],
     opacity_names: &[Vec<u8>],
+    font_set: &mut FontSet,
 ) -> pdf_writer::Buf {
     let mut content = Content::new();
 
@@ -364,79 +353,20 @@ fn build_content_stream(
 
                 // Y: our y is top-down baseline; PDF y is bottom-up baseline
                 let pdf_y = page_height - y;
-                let font_name = pdf_font_resource_name(*bold, *italic, font_family);
+                let slot = fonts::slot(fonts::is_monospace_family(font_family), *bold, *italic);
+                let glyphs = font_set.encode(slot, text);
 
                 content.set_fill_rgb(color.r, color.g, color.b);
                 content.begin_text();
-                content.set_font(Name(font_name), *font_size);
+                content.set_font(pdf_fonts::resource_name(slot), *font_size);
                 content.next_line(*x, pdf_y);
-                content.show(Str(encode_latin1(text).as_slice()));
+                content.show(Str(glyphs.as_slice()));
                 content.end_text();
             }
         }
     }
 
     content.finish()
-}
-
-// --- Utilities ---
-
-fn is_monospace_family(family: &str) -> bool {
-    let l = family.to_ascii_lowercase();
-    l.contains("courier") || l.contains("mono")
-}
-
-/// Resource name embedded in the content stream (F1…F8).
-fn pdf_font_resource_name(bold: bool, italic: bool, font_family: &str) -> &'static [u8] {
-    match (is_monospace_family(font_family), bold, italic) {
-        (false, false, false) => b"F1",
-        (false, true, false) => b"F2",
-        (false, false, true) => b"F3",
-        (false, true, true) => b"F4",
-        (true, false, false) => b"F5",
-        (true, true, false) => b"F6",
-        (true, false, true) => b"F7",
-        (true, true, true) => b"F8",
-    }
-}
-
-/// Encode UTF-8 → WinAnsiEncoding (cp1252).
-/// Standard Latin-1 (0x00–0xFF) is preserved as-is.
-/// WinAnsi characters in 0x80–0x9F are mapped explicitly.
-/// Everything else becomes '?'.
-/// Limitation of built-in Type1 fonts; TrueType + ToUnicode is planned for v3.
-fn encode_latin1(s: &str) -> Vec<u8> {
-    s.chars().map(|c| match c as u32 {
-        code @ (0x00..=0x7F | 0xA0..=0xFF) => code as u8,
-        0x20AC => 0x80, // € EURO SIGN
-        0x201A => 0x82, // ‚ SINGLE LOW-9 QUOTATION MARK
-        0x0192 => 0x83, // ƒ LATIN SMALL LETTER F WITH HOOK
-        0x201E => 0x84, // „ DOUBLE LOW-9 QUOTATION MARK
-        0x2026 => 0x85, // … HORIZONTAL ELLIPSIS
-        0x2020 => 0x86, // † DAGGER
-        0x2021 => 0x87, // ‡ DOUBLE DAGGER
-        0x02C6 => 0x88, // ˆ MODIFIER LETTER CIRCUMFLEX ACCENT
-        0x2030 => 0x89, // ‰ PER MILLE SIGN
-        0x0160 => 0x8A, // Š LATIN CAPITAL LETTER S WITH CARON
-        0x2039 => 0x8B, // ‹ SINGLE LEFT-POINTING ANGLE QUOTATION MARK
-        0x0152 => 0x8C, // Œ LATIN CAPITAL LIGATURE OE
-        0x017D => 0x8E, // Ž LATIN CAPITAL LETTER Z WITH CARON
-        0x2022 => 0x95, // • BULLET
-        0x2013 => 0x96, // – EN DASH
-        0x2014 => 0x97, // — EM DASH
-        0x02DC => 0x98, // ˜ SMALL TILDE
-        0x2122 => 0x99, // ™ TRADE MARK SIGN
-        0x0161 => 0x9A, // š LATIN SMALL LETTER S WITH CARON
-        0x203A => 0x9B, // › SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
-        0x0153 => 0x9C, // œ LATIN SMALL LIGATURE OE
-        0x017E => 0x9E, // ž LATIN SMALL LETTER Z WITH CARON
-        0x0178 => 0x9F, // Ÿ LATIN CAPITAL LETTER Y WITH DIAERESIS
-        0x201C => 0x93, // " LEFT DOUBLE QUOTATION MARK
-        0x201D => 0x94, // " RIGHT DOUBLE QUOTATION MARK
-        0x2018 => 0x91, // ' LEFT SINGLE QUOTATION MARK
-        0x2019 => 0x92, // ' RIGHT SINGLE QUOTATION MARK
-        _ => b'?',
-    }).collect()
 }
 
 struct RefAlloc(i32);
