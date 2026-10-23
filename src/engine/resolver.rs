@@ -55,7 +55,15 @@ fn convert_block(
     // Convert content
     let content = match &block.content {
         Content::Text(s) => BoxContent::Text(s.clone()),
-        Content::Inline(nodes) => BoxContent::Inline(flatten_inline(nodes, false, false, None)),
+        Content::Inline(nodes) => {
+            let mut runs = flatten_inline(nodes, false, false, None);
+            if is_monospace_family(&styles.font_family) {
+                for run in &mut runs {
+                    run.code = true;
+                }
+            }
+            BoxContent::Inline(runs)
+        }
         Content::Empty => BoxContent::Empty,
         Content::Children(children) => {
             // Allocate the node without children first
@@ -322,6 +330,11 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
             _ => {}
         }
     }
+}
+
+fn is_monospace_family(family: &str) -> bool {
+    let l = family.to_ascii_lowercase();
+    l.contains("courier") || l.contains("mono")
 }
 
 fn value_to_f32(value: &Value) -> Option<f32> {

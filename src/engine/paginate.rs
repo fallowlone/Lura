@@ -464,6 +464,9 @@ impl<'a> Paginator<'a> {
                     )
                 }
             }
+            LayoutContent::Inline(runs) if matches!(node.kind, BoxKind::ListItem) => {
+                self.place_list_item_inline(node_idx, &runs)
+            }
             LayoutContent::Inline(runs) => {
                 let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
                 let justify = styles.justify || styles.text_align == super::styles::TextAlign::Justify;
@@ -781,6 +784,26 @@ impl<'a> Paginator<'a> {
                 _ => {}
             }
         }
+        // Several blocks (or a nested list): draw the marker once, beside the first one.
+        let node = self.layout.nodes[list_item_idx].clone();
+        let styles = self.styled.get(node.arena_id).styles.clone();
+        let marker = match self.list_item_counter {
+            Some(n) => format!("{}.", n),
+            None => "\u{2022}".to_string(),
+        };
+        self.push_cmd(DrawCommand::Text {
+            content: marker,
+            x: node.x - 4.5 * MM_TO_PT,
+            y: self.cursor_y + styles.font_size,
+            font_size: styles.font_size,
+            font_family: styles.font_family.clone(),
+            bold: false,
+            italic: false,
+            color: styles.color,
+            link_uri: None,
+            link_width_pt: None,
+        });
+        self.list_item_counter = None; // nested lists number from their own parent
         let mut total = 0.0f32;
         for child_idx in child_indices {
             total += self.place_node(child_idx);

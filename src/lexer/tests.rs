@@ -113,3 +113,11 @@ fn test_block_id_token_sequence() {
 fn stray_rparen_after_attrs_does_not_underflow_depth() {
     lex("{\"\"})");
 }
+
+#[test]
+fn code_block_preserves_leading_indentation() {
+    let tokens = lex("CODE(P(    four))");
+    assert!(tokens.contains(&Token::Text("    four".into())), "{tokens:?}");
+    let tokens = lex("P(    four)");
+    assert!(tokens.contains(&Token::Text("four".into())), "{tokens:?}");
+}

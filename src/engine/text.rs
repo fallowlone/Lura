@@ -269,15 +269,8 @@ pub fn text_width_pt_with_spacing(
 /// System monospace metrics (Menlo, etc.) are often narrower than Courier, which caused
 /// layout to place the next fragment too early and overlap monospace runs.
 pub(crate) fn courier_core14_width_floor_pt(text: &str, font_size_pt: f32) -> f32 {
-    text.chars()
-        .map(|c| {
-            if c.is_whitespace() {
-                font_size_pt * 0.35
-            } else {
-                font_size_pt * 0.60
-            }
-        })
-        .sum()
+    // Courier is monospaced: every glyph, spaces included, advances 0.6 em.
+    text.chars().count() as f32 * font_size_pt * 0.60
 }
 
 fn text_width_pt_with_spacing_mono(
