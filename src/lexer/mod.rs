@@ -185,7 +185,7 @@ impl Lexer {
                     None => Token::Eof,
                     Some(')') => {
                         self.advance();
-                        self.paren_depth -= 1;
+                        self.paren_depth = self.paren_depth.saturating_sub(1);
                         if self.paren_depth == 0 {
                             self.mode = Mode::Normal;
                         }

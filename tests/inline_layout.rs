@@ -52,3 +52,14 @@ fn render_cache_regression_same_bytes() {
     let second = engine::render(&doc, ExportOptions { format: ExportFormat::Pdf });
     assert_eq!(first, second);
 }
+
+#[test]
+fn huge_colspan_is_clamped_and_renders() {
+    let src = "PAGE(TABLE(ROW(CELL({colspan: 99999999999} a)CELL(b))))";
+    let mut doc = lura::parser::Parser::new(lura::lexer::Lexer::new(src).tokenize())
+        .parse()
+        .expect("parse");
+    doc = lura::parser::resolver::resolve(doc);
+    doc = lura::parser::id::assign_ids(doc);
+    assert!(lura::engine::render_pdf(&doc).starts_with(b"%PDF"));
+}

@@ -11,6 +11,9 @@ use super::styles::{
     ListStyle, ResolvedStyles, StyledBox, TextAlign, VerticalAlign,
 };
 
+/// Upper bound for `colspan`; larger values make column allocation blow up.
+const MAX_CELL_SPAN: usize = 1024;
+
 /// Main entry point.
 /// Takes `Document` from the parser, returns `DocumentArena`.
 pub fn build_styled_tree(doc: &Document) -> DocumentArena {
@@ -209,7 +212,7 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
             }
             "span" | "colspan" | "col-span" => {
                 if let Some(v) = value_to_f32(value) {
-                    styles.cell_span = (v as usize).max(1);
+                    styles.cell_span = (v as usize).clamp(1, MAX_CELL_SPAN);
                 }
             }
             "nowrap" | "no-wrap" => {
