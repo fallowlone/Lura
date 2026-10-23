@@ -52,6 +52,21 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
         return cached;
     }
 
+    let page_tree = paginate_document(doc);
+
+    let bytes = match options.format {
+        ExportFormat::Pdf => backend::pdf::render(&page_tree),
+        ExportFormat::Svg => backend::svg::render(&page_tree).into_bytes(),
+    };
+
+    cache_render(key, &bytes);
+    bytes
+}
+
+/// Run resolver → counters → layout → paginate (with `{{page:id}}` passes if
+/// needed). Shared by `render` and `extract_text_index` so both paths see the
+/// exact same pagination + text placement.
+fn paginate_document(doc: &Document) -> paginate::PageTree {
     let mut styled = resolver::build_styled_tree(doc);
     let heading_nums = counters::compute_heading_numbers(&styled);
     counters::apply_sec_placeholders(&mut styled, &heading_nums);
@@ -61,6 +76,7 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
         pages: Vec::new(),
         block_start_page: std::collections::HashMap::new(),
         anchor_positions: std::collections::HashMap::new(),
+        text_units: Vec::new(),
     };
     // After the first `apply_page_placeholders`, `{{page:…}}` is gone; we must not use that
     // to exit the loop or we never reflow with substituted digits and never compare fingerprints.
@@ -80,14 +96,16 @@ pub fn render(doc: &Document, options: ExportOptions) -> Vec<u8> {
         introspection::apply_page_placeholders(&mut styled, &page_tree.block_start_page);
         prev_fp = Some(fp);
     }
+    page_tree
+}
 
-    let bytes = match options.format {
-        ExportFormat::Pdf => backend::pdf::render(&page_tree),
-        ExportFormat::Svg => backend::svg::render(&page_tree).into_bytes(),
-    };
-
-    cache_render(key, &bytes);
-    bytes
+/// Build a searchable text index for `doc` as a JSON payload (see
+/// `docs/SPEC.md` and `src/renderer/json.rs::text_index_json`). Coordinates are
+/// bottom-origin PDF points so Swift can hand the rects to PDFKit annotations
+/// without flipping.
+pub fn extract_text_index(doc: &Document) -> String {
+    let page_tree = paginate_document(doc);
+    crate::renderer::json::text_index_json(&page_tree.text_units)
 }
 
 /// Full pipeline: `Document` → PDF bytes

@@ -1,3 +1,4 @@
+use crate::engine::paginate::TextUnit;
 use crate::parser::ast::{Block, Content, Document, Value};
 
 pub fn render(doc: &Document) -> String {
@@ -70,6 +71,51 @@ fn render_content(content: &Content, doc: &Document, indent: usize) -> String {
             out
         }
     }
+}
+
+/// Serialize a painted-line index for Cmd+F. Shape:
+/// `{"units":[{"page":0,"x":..,"y":..,"w":..,"h":..,"text":"..","block_id":".."}]}`
+pub fn text_index_json(units: &[TextUnit]) -> String {
+    let mut out = String::from("{\n  \"units\": [");
+    let mut first = true;
+    for u in units {
+        if !first {
+            out.push(',');
+        }
+        first = false;
+        out.push_str(&format!(
+            "\n    {{\"page\":{},\"x\":{:.4},\"y\":{:.4},\"w\":{:.4},\"h\":{:.4},\"text\":\"{}\",\"block_id\":\"{}\"}}",
+            u.page,
+            u.x,
+            u.y,
+            u.w,
+            u.h,
+            escape_json_string(&u.text),
+            escape_json_string(&u.block_id),
+        ));
+    }
+    if !first {
+        out.push('\n');
+        out.push_str("  ");
+    }
+    out.push_str("]\n}");
+    out
+}
+
+fn escape_json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn render_value(value: &Value) -> String {

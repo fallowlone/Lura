@@ -17,6 +17,9 @@ pub enum Token {
 
     // Values
     Text(String),    // raw text content
+    /// Verbatim body of a raw-body block (CODE). Preserves newlines and whitespace;
+    /// no inline parsing, no block recognition, no `#` breaking. Balanced-paren only.
+    RawText(String),
     String(String),  // "quoted string"
     Number(f64),     // 24, 1.5
     Unit(f64, String), // 25mm, 1fr
@@ -46,6 +49,7 @@ impl std::fmt::Display for Token {
             Token::RBracket => f.write_str("']'"),
             Token::Colon => f.write_str("':'"),
             Token::Comma => f.write_str("','"),
+            Token::RawText(_) => f.write_str("raw code body"),
             Token::Text(s) => write!(f, "text \"{s}\""),
             Token::String(s) => write!(f, "string \"{s}\""),
             Token::Number(n) => write!(f, "number {n}"),

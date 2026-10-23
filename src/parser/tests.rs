@@ -177,6 +177,78 @@ fn test_nested_blocks_all_get_ids() {
     }
 }
 
+fn first_code<'a>(doc: &'a Document, id: NodeId) -> Option<&'a Block> {
+    let b = doc.block(id);
+    if b.kind == "CODE" {
+        return Some(b);
+    }
+    if let Content::Children(children) = &b.content {
+        for &c in children {
+            if let Some(hit) = first_code(doc, c) {
+                return Some(hit);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn code_raw_body_preserves_newlines_and_leading_indent() {
+    let src = "PAGE(CODE(\n    fn main() {\n      println!(\"hi\");\n    }\n))";
+    let doc = parse(src);
+    let code = first_code(&doc, doc.root_ids()[0]).expect("CODE");
+    match &code.content {
+        Content::Text(body) => {
+            // Common 4-space prefix stripped; indentation of inner lines preserved.
+            assert_eq!(body, "fn main() {\n  println!(\"hi\");\n}");
+        }
+        other => panic!("expected Content::Text, got {:?}", other),
+    }
+}
+
+#[test]
+fn code_raw_body_with_attrs_still_raw() {
+    let src = "PAGE(CODE({background: #F0F0F0}\nfn main() {}\n))";
+    let doc = parse(src);
+    let code = first_code(&doc, doc.root_ids()[0]).expect("CODE");
+    assert!(code.attrs.contains_key("background"));
+    match &code.content {
+        Content::Text(body) => assert_eq!(body, "fn main() {}"),
+        other => panic!("expected Content::Text, got {:?}", other),
+    }
+}
+
+#[test]
+fn code_legacy_block_children_still_parse_as_children() {
+    let src = "PAGE(CODE(P(line one) P(line two)))";
+    let doc = parse(src);
+    let code = first_code(&doc, doc.root_ids()[0]).expect("CODE");
+    match &code.content {
+        Content::Children(children) => {
+            assert_eq!(children.len(), 2);
+            assert_eq!(doc.block(children[0]).kind, "P");
+            assert_eq!(doc.block(children[1]).kind, "P");
+        }
+        other => panic!("expected Content::Children, got {:?}", other),
+    }
+}
+
+#[test]
+fn code_with_explicit_id_still_parses_raw_body() {
+    // Regression: the `[id]` annotation ident must not clobber the
+    // `last_ident_was_code` flag, or the body falls back to Content mode.
+    let src = "PAGE(CODE[myid](\nfn main() {\n  println!(\"hi\");\n}\n))";
+    let doc = parse(src);
+    let code = first_code(&doc, doc.root_ids()[0]).expect("CODE");
+    assert_eq!(code.id, "myid");
+    match &code.content {
+        Content::Text(body) => {
+            assert_eq!(body, "fn main() {\n  println!(\"hi\");\n}");
+        }
+        other => panic!("expected raw Content::Text, got {:?}", other),
+    }
+}
+
 fn all_ids(doc: &Document) -> Vec<String> {
     fn walk(doc: &Document, id: NodeId, out: &mut Vec<String>) {
         out.push(doc.block(id).id.clone());

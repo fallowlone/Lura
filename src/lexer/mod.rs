@@ -10,7 +10,18 @@ enum Mode {
     Normal,  // reading block names and structure
     Attrs,   // inside { }, reading key: value pairs
     Content, // reading raw text content
+    /// Inside a CODE(...) body with no legacy block children — slurp verbatim
+    /// until the outer `)` and emit one `Token::RawText`.
+    CodeRaw,
 }
+
+/// Block idents that keep the legacy per-line `P(...)` (or other block) wrapping
+/// inside a `CODE(...)` body. Anything else triggers raw-body mode.
+const LEGACY_CODE_CHILD_IDENTS: &[&str] = &[
+    "P", "H1", "H2", "H3", "H4", "H5", "H6",
+    "LIST", "ITEM", "PAGE", "CODE", "QUOTE", "TABLE", "ROW", "CELL",
+    "GRID", "FIGURE", "IMAGE", "HR", "STYLES",
+];
 
 pub struct Lexer {
     input: Vec<char>,
@@ -18,8 +29,12 @@ pub struct Lexer {
     mode: Mode,
     paren_depth: usize, // tracks nested ( )
     brace_depth: usize, // tracks nested { }
-    last_block: String, // most recent block name, to tell CODE from other blocks
-    in_bracket: bool,   // inside [id], so its ident is not a block name
+    /// Tracks `[...]` nesting so the `[id]` annotation's ident does not
+    /// clobber `last_ident_was_code`. 0 = outside any bracket pair.
+    bracket_depth: usize,
+    /// True iff the most recently emitted Ident was `CODE` and no other
+    /// structural token has been emitted since.
+    last_ident_was_code: bool,
     block_stack: Vec<bool>, // per open '(': is it a CODE block
     token_start: usize,     // char offset where the token being read begins
     starts: Vec<usize>,     // start offset of every token returned by `tokenize`
@@ -33,8 +48,8 @@ impl Lexer {
             mode: Mode::Normal,
             paren_depth: 0,
             brace_depth: 0,
-            last_block: String::new(),
-            in_bracket: false,
+            bracket_depth: 0,
+            last_ident_was_code: false,
             block_stack: Vec::new(),
             token_start: 0,
             starts: Vec::new(),
@@ -158,6 +173,69 @@ impl Lexer {
         matches!(self.input.get(i), Some('('))
     }
 
+    /// Peek ahead from `self.pos` (which is just after the opening `(` of the
+    /// CODE block and any `{...}` attrs block has already been tokenized-and-
+    /// advanced past). Returns true iff the next non-whitespace chars form a
+    /// legacy-style block ident (`P(`, `H1(`, …). Cursor is not moved.
+    fn code_body_is_legacy_children(&self) -> bool {
+        let mut i = self.pos;
+        while matches!(self.input.get(i), Some(c) if c.is_whitespace()) {
+            i += 1;
+        }
+        let start = i;
+        while matches!(self.input.get(i), Some(c) if c.is_alphanumeric() || *c == '_') {
+            i += 1;
+        }
+        if i == start {
+            return false;
+        }
+        let ident: String = self.input[start..i].iter().collect();
+        if !LEGACY_CODE_CHILD_IDENTS.iter().any(|k| *k == ident) {
+            return false;
+        }
+        while matches!(self.input.get(i), Some(c) if c.is_whitespace()) {
+            i += 1;
+        }
+        // Optional [id]
+        if matches!(self.input.get(i), Some('[')) {
+            while matches!(self.input.get(i), Some(&c) if c != ']') {
+                i += 1;
+            }
+            if matches!(self.input.get(i), Some(']')) {
+                i += 1;
+            }
+            while matches!(self.input.get(i), Some(c) if c.is_whitespace()) {
+                i += 1;
+            }
+        }
+        matches!(self.input.get(i), Some('('))
+    }
+
+    /// Read verbatim chars from `self.pos` until the matching outer `)` of the
+    /// CODE block (tracking balanced parens). Cursor ends on that `)`. No
+    /// escape handling in v1.
+    fn read_code_raw(&mut self) -> String {
+        let mut s = String::new();
+        let mut depth: usize = 0;
+        while let Some(c) = self.current() {
+            match c {
+                ')' if depth == 0 => break,
+                ')' => {
+                    depth -= 1;
+                    s.push(self.advance().unwrap());
+                }
+                '(' => {
+                    depth += 1;
+                    s.push(self.advance().unwrap());
+                }
+                _ => {
+                    s.push(self.advance().unwrap());
+                }
+            }
+        }
+        s
+    }
+
     // Read raw text content until unbalanced ) or nested block name
     fn read_content(&mut self) -> Token {
         let mut s = String::new();
@@ -221,6 +299,40 @@ impl Lexer {
         self.token_start = self.pos;
 
         match self.mode {
+            Mode::CodeRaw => {
+                // Emit one RawText, then let the ')' flip us back.
+                match self.current() {
+                    None => Token::Eof,
+                    Some(')') => {
+                        self.advance();
+                        self.paren_depth = self.paren_depth.saturating_sub(1);
+                        self.block_stack.pop();
+                        self.mode = if self.paren_depth == 0 { Mode::Normal } else { Mode::Content };
+                        Token::RParen
+                    }
+                    _ => {
+                        // NB: we keep whitespace that `skip_whitespace` already
+                        // consumed by re-emitting from `self.pos` via the raw
+                        // reader. `skip_whitespace` only runs once at fn entry;
+                        // after the first RawText emission we come back here to
+                        // the ')' branch above. To preserve leading whitespace
+                        // of the body we rewind past any whitespace skipped on
+                        // entry. In practice `skip_whitespace` will have eaten
+                        // the initial `\n` after `CODE(` — put it back so the
+                        // dedent pass sees true alignment.
+                        let mut back = self.pos;
+                        while back > 0
+                            && matches!(self.input.get(back - 1), Some(c) if c.is_whitespace())
+                        {
+                            back -= 1;
+                        }
+                        self.pos = back;
+                        let body = self.read_code_raw();
+                        Token::RawText(body)
+                    }
+                }
+            }
+
             Mode::Content => {
                 match self.current() {
                     None => Token::Eof,
@@ -255,7 +367,14 @@ impl Lexer {
                     Some('}') => {
                         self.advance();
                         self.brace_depth -= 1;
-                        self.mode = Mode::Content;
+                        self.mode = if self.last_ident_was_code
+                            && !self.code_body_is_legacy_children()
+                        {
+                            Mode::CodeRaw
+                        } else {
+                            Mode::Content
+                        };
+                        self.last_ident_was_code = false;
                         Token::RBrace
                     }
                     Some('{') => {
@@ -279,15 +398,23 @@ impl Lexer {
                     Some('(') => {
                         self.advance();
                         self.paren_depth += 1;
-                        self.block_stack.push(self.last_block == "CODE");
+                        self.block_stack.push(self.last_ident_was_code);
                         // peek: if next non-whitespace is { → attrs, else → content
                         let next = self.input[self.pos..].iter()
                             .find(|&&c| !c.is_whitespace())
                             .copied();
                         if next == Some('{') {
-                            // stay Normal briefly, LBrace will switch to Attrs
+                            // stay Normal briefly, LBrace will switch to Attrs;
+                            // keep `last_ident_was_code` alive so the RBrace
+                            // flip sees it.
+                        } else if self.last_ident_was_code
+                            && !self.code_body_is_legacy_children()
+                        {
+                            self.mode = Mode::CodeRaw;
+                            self.last_ident_was_code = false;
                         } else {
                             self.mode = Mode::Content;
+                            self.last_ident_was_code = false;
                         }
                         Token::LParen
                     }
@@ -305,20 +432,23 @@ impl Lexer {
                     }
                     Some('[') => {
                         self.advance();
-                        self.in_bracket = true;
+                        self.bracket_depth += 1;
                         Token::LBracket
                     }
                     Some(']') => {
                         self.advance();
-                        self.in_bracket = false;
+                        self.bracket_depth = self.bracket_depth.saturating_sub(1);
                         Token::RBracket
                     }
                     Some(c) if c.is_alphabetic() => {
-                        let ident = self.read_ident();
-                        if !self.in_bracket {
-                            self.last_block = ident.clone();
+                        let s = self.read_ident();
+                        // Only block-opener idents (outside any `[id]` annotation)
+                        // carry the CODE signal forward; id strings inside `[...]`
+                        // must not clobber the flag.
+                        if self.bracket_depth == 0 {
+                            self.last_ident_was_code = s == "CODE";
                         }
-                        Token::Ident(ident)
+                        Token::Ident(s)
                     }
                     _ => { self.advance(); self.next_token() }
                 }

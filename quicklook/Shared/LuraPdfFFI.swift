@@ -9,9 +9,23 @@ struct LuraPdfResultC {
     var errorPtr: UnsafeMutablePointer<CChar>?
 }
 
+/// C ABI mirror of Rust `LuraTextIndexResult` in `src/lib.rs` (field order must
+/// match `#[repr(C)]`).
+struct LuraTextIndexResultC {
+    var jsonPtr: UnsafeMutablePointer<UInt8>?
+    var jsonLen: Int
+    var jsonCap: Int
+    var errorPtr: UnsafeMutablePointer<CChar>?
+}
+
 enum LuraPdfFFI {
     struct Output {
         var pdfData: Data?
+        var errorMessage: String?
+    }
+
+    struct TextIndexOutput {
+        var jsonData: Data?
         var errorMessage: String?
     }
 
@@ -41,6 +55,36 @@ enum LuraPdfFFI {
                 return Output(pdfData: nil, errorMessage: "Empty PDF output.")
             }
             return Output(pdfData: Data(bytes: p, count: r.pdfLen), errorMessage: nil)
+        }
+    }
+
+    /// Calls `lura_extract_text` / `lura_free_text_index_result` from an
+    /// already-resolved dylib. Returns raw UTF-8 JSON bytes; the caller is
+    /// responsible for decoding.
+    static func invokeExtractText(
+        source: String,
+        symExtract: UnsafeMutableRawPointer,
+        symFree: UnsafeMutableRawPointer
+    ) -> TextIndexOutput {
+        typealias ExtractFn = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+        typealias FreeFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+        let extractText = unsafeBitCast(symExtract, to: ExtractFn.self)
+        let freeResult = unsafeBitCast(symFree, to: FreeFn.self)
+
+        return source.withCString { cstr in
+            guard let raw = extractText(cstr) else {
+                return TextIndexOutput(jsonData: nil, errorMessage: "Library returned null (out of memory).")
+            }
+            defer { freeResult(raw) }
+            let resPtr = raw.assumingMemoryBound(to: LuraTextIndexResultC.self)
+            let r = resPtr.pointee
+            if let ep = r.errorPtr {
+                return TextIndexOutput(jsonData: nil, errorMessage: String(cString: ep))
+            }
+            guard let p = r.jsonPtr, r.jsonLen > 0 else {
+                return TextIndexOutput(jsonData: nil, errorMessage: "Empty text index.")
+            }
+            return TextIndexOutput(jsonData: Data(bytes: p, count: r.jsonLen), errorMessage: nil)
         }
     }
 }

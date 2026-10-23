@@ -50,6 +50,17 @@ fn convert_block(
     }
     styles.apply_kind_defaults(&kind);
 
+    // Table-level `cell-padding` cascade: if an ancestor set cell_padding and
+    // this CELL has no explicit padding attr, promote it over the kind default.
+    // `apply_attrs` runs after, so per-cell `{padding: ...}` still wins.
+    if matches!(kind, BoxKind::Cell) {
+        if let Some(ep) = styles.cell_padding {
+            if !block_has_explicit_padding(block) {
+                styles.padding = ep;
+            }
+        }
+    }
+
     // Apply explicit block attrs (override defaults and inheritance)
     apply_attrs(&mut styles, block, &kind);
 
@@ -100,6 +111,21 @@ fn inherit_styles(child: &mut ResolvedStyles, parent: &ResolvedStyles) {
     child.color = parent.color;
     child.line_height = parent.line_height;
     child.text_align = parent.text_align;
+    child.cell_padding = parent.cell_padding;
+}
+
+const CELL_PADDING_ATTR_NAMES: &[&str] = &[
+    "padding",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+];
+
+fn block_has_explicit_padding(block: &Block) -> bool {
+    CELL_PADDING_ATTR_NAMES
+        .iter()
+        .any(|name| block.attrs.contains_key(*name))
 }
 
 fn parse_text_align(s: &str) -> TextAlign {
@@ -303,10 +329,53 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) -> Ve
                     styles.grid_column_tracks = tracks;
                 }
             }
-            "column-gap" | "gap" => {
+            "gap" => {
                 if let Some(v) = value_to_f32(value) {
                     styles.column_gap = v;
                     styles.row_gap = v;
+                }
+            }
+            "column-gap" => {
+                if let Some(v) = value_to_f32(value) {
+                    styles.column_gap = v;
+                }
+            }
+            "row-gap" => {
+                if let Some(v) = value_to_f32(value) {
+                    styles.row_gap = v;
+                }
+            }
+            "cell-padding" => {
+                if let Some(v) = value_to_f32(value) {
+                    styles.cell_padding = Some(EdgeInsets::uniform(v));
+                }
+            }
+            "cell-padding-top" => {
+                if let Some(v) = value_to_f32(value) {
+                    let mut ep = styles.cell_padding.unwrap_or_else(EdgeInsets::zero);
+                    ep.top = v;
+                    styles.cell_padding = Some(ep);
+                }
+            }
+            "cell-padding-right" => {
+                if let Some(v) = value_to_f32(value) {
+                    let mut ep = styles.cell_padding.unwrap_or_else(EdgeInsets::zero);
+                    ep.right = v;
+                    styles.cell_padding = Some(ep);
+                }
+            }
+            "cell-padding-bottom" => {
+                if let Some(v) = value_to_f32(value) {
+                    let mut ep = styles.cell_padding.unwrap_or_else(EdgeInsets::zero);
+                    ep.bottom = v;
+                    styles.cell_padding = Some(ep);
+                }
+            }
+            "cell-padding-left" => {
+                if let Some(v) = value_to_f32(value) {
+                    let mut ep = styles.cell_padding.unwrap_or_else(EdgeInsets::zero);
+                    ep.left = v;
+                    styles.cell_padding = Some(ep);
                 }
             }
             "float" => {
@@ -492,5 +561,81 @@ mod tests {
         let h1 = first_heading(&arena, root).expect("H1");
         assert!((h1.styles.font_size - 14.0).abs() < f32::EPSILON);
         assert_eq!(h1.styles.font_weight, FontWeight::Bold);
+    }
+
+    fn find_kind<'a>(arena: &'a DocumentArena, id: NodeId, target: &BoxKind) -> Option<&'a StyledBox> {
+        let node = arena.get(id);
+        if std::mem::discriminant(&node.kind) == std::mem::discriminant(target) {
+            return Some(node);
+        }
+        if let BoxContent::Children(children) = &node.content {
+            for &cid in children {
+                if let Some(h) = find_kind(arena, cid, target) {
+                    return Some(h);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn row_gap_and_column_gap_parse_independently() {
+        let doc = parse_doc(
+            r#"PAGE(GRID({columns: "1fr 1fr", column-gap: 4, row-gap: 12} P(a) P(b)))"#,
+        );
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let grid = find_kind(&arena, root, &BoxKind::Grid).expect("GRID");
+        assert!((grid.styles.column_gap - 4.0).abs() < f32::EPSILON);
+        assert!((grid.styles.row_gap - 12.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn gap_shorthand_still_sets_both_axes() {
+        let doc = parse_doc(
+            r#"PAGE(GRID({columns: "1fr 1fr", gap: 6} P(a) P(b)))"#,
+        );
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let grid = find_kind(&arena, root, &BoxKind::Grid).expect("GRID");
+        assert!((grid.styles.column_gap - 6.0).abs() < f32::EPSILON);
+        assert!((grid.styles.row_gap - 6.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cell_padding_cascades_from_table_to_cell_without_explicit_attr() {
+        let doc = parse_doc(
+            r#"PAGE(TABLE({cell-padding: 5} ROW(CELL(P(hi)))))"#,
+        );
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let cell = find_kind(&arena, root, &BoxKind::Cell).expect("CELL");
+        assert!((cell.styles.padding.top - 5.0).abs() < f32::EPSILON);
+        assert!((cell.styles.padding.right - 5.0).abs() < f32::EPSILON);
+        assert!((cell.styles.padding.bottom - 5.0).abs() < f32::EPSILON);
+        assert!((cell.styles.padding.left - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn per_cell_padding_overrides_table_cell_padding() {
+        let doc = parse_doc(
+            r#"PAGE(TABLE({cell-padding: 5} ROW(CELL({padding: 2} P(hi)))))"#,
+        );
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let cell = find_kind(&arena, root, &BoxKind::Cell).expect("CELL");
+        assert!((cell.styles.padding.top - 2.0).abs() < f32::EPSILON);
+        assert!((cell.styles.padding.left - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cell_with_no_cascade_keeps_kind_default_padding() {
+        let doc = parse_doc(r#"PAGE(TABLE(ROW(CELL(P(hi)))))"#);
+        let arena = build_styled_tree(&doc);
+        let root = arena.roots[0];
+        let cell = find_kind(&arena, root, &BoxKind::Cell).expect("CELL");
+        // kind default: EdgeInsets::new(1.5, 2.0, 1.5, 2.0)
+        assert!((cell.styles.padding.top - 1.5).abs() < f32::EPSILON);
+        assert!((cell.styles.padding.right - 2.0).abs() < f32::EPSILON);
     }
 }

@@ -90,6 +90,11 @@ pub struct ResolvedStyles {
     pub margin: EdgeInsets,
     pub padding: EdgeInsets,
 
+    /// TABLE/GRID default padding for descendant CELLs that have no explicit
+    /// `padding*` attr. Inherited through intermediate ROW/GRID nodes. `None`
+    /// = fall back to the `apply_kind_defaults` value for CELL.
+    pub cell_padding: Option<EdgeInsets>,
+
     /// Block width when set explicitly
     pub width: Option<f32>,
     /// Block height when set explicitly
@@ -171,6 +176,7 @@ impl Default for ResolvedStyles {
             overflow_clip: false,
             margin: EdgeInsets::new(0.0, 0.0, 2.5, 0.0),
             padding: EdgeInsets::zero(),
+            cell_padding: None,
             width: None,
             height: None,
             min_width: None,

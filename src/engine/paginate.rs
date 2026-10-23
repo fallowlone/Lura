@@ -89,6 +89,21 @@ pub struct AnchorPosition {
     pub y: f32,
 }
 
+/// Searchable text unit — one per painted line. Coordinates are in PDF points
+/// with bottom-origin (y=0 at page bottom) so Swift can hand the rect to
+/// PDFKit annotations without axis flipping.
+#[derive(Debug, Clone)]
+pub struct TextUnit {
+    /// 0-based page index.
+    pub page: u32,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub text: String,
+    pub block_id: String,
+}
+
 #[derive(Debug)]
 pub struct PageTree {
     pub pages: Vec<Page>,
@@ -96,6 +111,8 @@ pub struct PageTree {
     pub block_start_page: HashMap<String, u32>,
     /// Anchor ID → position (page index, Y coordinate). Collected during painting.
     pub anchor_positions: HashMap<String, AnchorPosition>,
+    /// Searchable text index: one entry per painted line.
+    pub text_units: Vec<TextUnit>,
 }
 
 impl PageTree {
@@ -104,6 +121,7 @@ impl PageTree {
             pages: vec![Page::new()],
             block_start_page: HashMap::new(),
             anchor_positions: HashMap::new(),
+            text_units: Vec::new(),
         }
     }
 }
@@ -146,6 +164,11 @@ struct Paginator<'a> {
     /// children to the normalized column rect (taffy computes flex per-row, so
     /// cell widths can differ across rows in the same column).
     rect_override: HashMap<LayoutNodeIdx, (f32, f32)>,
+    /// Accumulator for `PageTree::text_units`.
+    text_units: Vec<TextUnit>,
+    /// Block id of the most-recent `queue_block_start` call, threaded into each
+    /// TextUnit so Swift can jump back to the source block for a match.
+    current_block_id: String,
 }
 
 impl<'a> Paginator<'a> {
@@ -164,6 +187,8 @@ impl<'a> Paginator<'a> {
             active_opacity: Vec::new(),
             active_clip: Vec::new(),
             rect_override: HashMap::new(),
+            text_units: Vec::new(),
+            current_block_id: String::new(),
         }
     }
 
@@ -180,7 +205,11 @@ impl<'a> Paginator<'a> {
     /// Queue a block to record its start page and anchor position (if applicable) when its first draw lands.
     fn queue_block_start(&mut self, arena_id: super::arena::NodeId) {
         let id = self.styled.get(arena_id).id.clone();
-        if id.is_empty() || self.block_start_page.contains_key(&id) {
+        if id.is_empty() {
+            return;
+        }
+        self.current_block_id = id.clone();
+        if self.block_start_page.contains_key(&id) {
             return;
         }
         self.pending_block_starts.push(id);
@@ -291,6 +320,42 @@ impl<'a> Paginator<'a> {
                     .pop()
                     .expect("PopClip without matching PushClipRect");
             }
+            DrawCommand::Text {
+                content,
+                x,
+                y,
+                font_size,
+                font_family,
+                bold,
+                ..
+            } if !content.is_empty() => {
+                let mono = font_family.eq_ignore_ascii_case("Courier");
+                let width = if mono {
+                    // Monospace: 0.6 em per char is a close-enough Courier
+                    // advance for highlight rects; skip the proportional
+                    // measurement path entirely.
+                    (content.chars().count() as f32) * font_size * 0.6
+                } else {
+                    super::text::text_width_pt_with_spacing(
+                        content, *font_size, *bold, 0.0, 0.0,
+                    )
+                };
+                // `y` is the painter's top-origin baseline. Convert to
+                // PDF bottom-origin for the match rect (baseline sits near the
+                // top of the rect; pad down ~20% of font_size for descent).
+                let baseline_pdf = A4_HEIGHT_PT - *y;
+                let y_pdf_bottom = baseline_pdf - *font_size * 0.2;
+                let page_zero = (self.pages.len().saturating_sub(1)) as u32;
+                self.text_units.push(TextUnit {
+                    page: page_zero,
+                    x: *x,
+                    y: y_pdf_bottom,
+                    w: width,
+                    h: *font_size,
+                    text: content.clone(),
+                    block_id: self.current_block_id.clone(),
+                });
+            }
             _ => {}
         }
         self.pages
@@ -384,6 +449,8 @@ impl<'a> Paginator<'a> {
         let margin_top = styles.margin.top * MM_TO_PT;
         let margin_bottom = styles.margin.bottom * MM_TO_PT;
         let padding_left = styles.padding.left * MM_TO_PT;
+        let padding_top_pt = styles.padding.top * MM_TO_PT;
+        let padding_bottom_pt = styles.padding.bottom * MM_TO_PT;
         let block_x = match styles.float {
             FloatMode::Left => PAGE_MARGIN_PT,
             FloatMode::Right => {
@@ -443,6 +510,29 @@ impl<'a> Paginator<'a> {
                 // wraps were already pushed above and need PopClip/PopOpacity after this arm.
                 if matches!(node.kind, BoxKind::ListItem) {
                     self.place_list_item(node_idx, &text)
+                } else if matches!(node.kind, BoxKind::Code) {
+                    // CODE raw body: one output line per source line, no wrapping,
+                    // literal leading whitespace preserved.
+                    let line_h = styles.font_size * styles.line_height;
+                    let lines: Vec<TextLine> = text
+                        .split('\n')
+                        .map(|s| TextLine {
+                            text: s.to_string(),
+                            width: 0.0,
+                            line_height_pt: line_h,
+                            font_size: styles.font_size,
+                        })
+                        .collect();
+                    self.paint_text_lines_paginated(
+                        &lines,
+                        block_x,
+                        node.width,
+                        padding_left,
+                        &styles,
+                        bold,
+                        padding_top_pt,
+                        padding_bottom_pt,
+                    )
                 } else {
                     let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
                     let lines = break_text(
@@ -461,6 +551,8 @@ impl<'a> Paginator<'a> {
                         padding_left,
                         &styles,
                         bold,
+                        padding_top_pt,
+                        padding_bottom_pt,
                     )
                 }
             }
@@ -480,6 +572,7 @@ impl<'a> Paginator<'a> {
                         word_spacing_pt: styles.word_spacing,
                         base_bold: bold,
                         justify,
+                        base_mono: super::fonts::is_monospace_family(&styles.font_family),
                     },
                 );
                 self.paint_inline_lines_paginated(
@@ -489,6 +582,8 @@ impl<'a> Paginator<'a> {
                     padding_left,
                     &styles,
                     bold,
+                    padding_top_pt,
+                    padding_bottom_pt,
                 )
             }
 
@@ -566,35 +661,44 @@ impl<'a> Paginator<'a> {
         padding_left: f32,
         styles: &super::styles::ResolvedStyles,
         bold: bool,
+        padding_top: f32,
+        padding_bottom: f32,
     ) -> f32 {
         if lines.is_empty() {
             return 0.0;
         }
-        let segments = self.compute_line_segments(lines.iter().map(|l| l.line_height_pt));
+        let segments = self.compute_line_segments_with_lead(
+            lines.iter().map(|l| l.line_height_pt),
+            padding_top,
+        );
         let mut total = 0.0f32;
         for (idx, (a, b)) in segments.iter().enumerate() {
+            let is_first = idx == 0;
+            let is_last = idx == segments.len() - 1;
             if idx > 0 {
                 self.new_page();
             }
             let seg_top = self.cursor_y;
+            let seg_lead = if is_first { padding_top } else { 0.0 };
+            let seg_tail = if is_last { padding_bottom } else { 0.0 };
             let seg_h: f32 = lines[*a..*b].iter().map(|l| l.line_height_pt).sum();
             if let Some(bg) = styles.background {
                 self.push_cmd(DrawCommand::Rect {
                     x: block_x,
                     y: seg_top,
                     w: width_bb.max(1.0),
-                    h: seg_h,
+                    h: seg_lead + seg_h + seg_tail,
                     fill: Some(bg),
                     stroke: None,
                     stroke_width: 0.0,
                 });
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
-                let y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
+                let y = seg_top + seg_lead + styles.font_size + k as f32 * line.line_height_pt;
                 self.push_text_line(line, block_x + padding_left, y, styles, bold);
             }
-            self.cursor_y = seg_top + seg_h;
-            total += seg_h;
+            self.cursor_y = seg_top + seg_lead + seg_h + seg_tail;
+            total += seg_lead + seg_h + seg_tail;
         }
         total
     }
@@ -607,35 +711,44 @@ impl<'a> Paginator<'a> {
         padding_left: f32,
         styles: &super::styles::ResolvedStyles,
         bold: bool,
+        padding_top: f32,
+        padding_bottom: f32,
     ) -> f32 {
         if lines.is_empty() {
             return 0.0;
         }
-        let segments = self.compute_line_segments(lines.iter().map(|l| l.line_height_pt));
+        let segments = self.compute_line_segments_with_lead(
+            lines.iter().map(|l| l.line_height_pt),
+            padding_top,
+        );
         let mut total = 0.0f32;
         for (idx, (a, b)) in segments.iter().enumerate() {
+            let is_first = idx == 0;
+            let is_last = idx == segments.len() - 1;
             if idx > 0 {
                 self.new_page();
             }
             let seg_top = self.cursor_y;
+            let seg_lead = if is_first { padding_top } else { 0.0 };
+            let seg_tail = if is_last { padding_bottom } else { 0.0 };
             let seg_h: f32 = lines[*a..*b].iter().map(|l| l.line_height_pt).sum();
             if let Some(bg) = styles.background {
                 self.push_cmd(DrawCommand::Rect {
                     x: block_x,
                     y: seg_top,
                     w: width_bb.max(1.0),
-                    h: seg_h,
+                    h: seg_lead + seg_h + seg_tail,
                     fill: Some(bg),
                     stroke: None,
                     stroke_width: 0.0,
                 });
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
-                let baseline_y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
+                let baseline_y = seg_top + seg_lead + styles.font_size + k as f32 * line.line_height_pt;
                 self.push_inline_line(line, block_x + padding_left, baseline_y, styles, bold);
             }
-            self.cursor_y = seg_top + seg_h;
-            total += seg_h;
+            self.cursor_y = seg_top + seg_lead + seg_h + seg_tail;
+            total += seg_lead + seg_h + seg_tail;
         }
         total
     }
@@ -713,11 +826,19 @@ impl<'a> Paginator<'a> {
     /// segment) or CONTENT_TOP (for subsequent segments) and CONTENT_BOTTOM.
     /// A segment never starts empty; lines that exceed a full page are placed
     /// alone on a page (inevitable overflow).
-    fn compute_line_segments<I: Iterator<Item = f32>>(&self, heights: I) -> Vec<(usize, usize)> {
+    /// Compute `(start, end)` line ranges that fit between the current
+    /// `cursor_y + lead` (first seg) or `CONTENT_TOP` (continuation segs) and
+    /// `CONTENT_BOTTOM`. `lead` reserves vertical padding-top so the first line
+    /// does not clip against `CONTENT_BOTTOM`. Pass `lead = 0.0` for no padding.
+    fn compute_line_segments_with_lead<I: Iterator<Item = f32>>(
+        &self,
+        heights: I,
+        lead: f32,
+    ) -> Vec<(usize, usize)> {
         let heights: Vec<f32> = heights.collect();
         let mut segments: Vec<(usize, usize)> = Vec::new();
         let mut seg_start = 0usize;
-        let mut sim_y = self.cursor_y;
+        let mut sim_y = self.cursor_y + lead;
         for (i, &h) in heights.iter().enumerate() {
             if sim_y + h > CONTENT_BOTTOM && sim_y > CONTENT_TOP && i > seg_start {
                 segments.push((seg_start, i));
@@ -805,6 +926,7 @@ impl<'a> Paginator<'a> {
                 word_spacing_pt: styles.word_spacing,
                 base_bold: bold,
                 justify,
+                base_mono: super::fonts::is_monospace_family(&styles.font_family),
             },
         );
         let block_h = inline_lines_block_height(&lines, styles.font_size, styles.line_height);
@@ -1271,6 +1393,7 @@ fn wrapped_text_height(
                 word_spacing_pt: styles.word_spacing,
                 base_bold: bold,
                 justify: styles.justify || styles.text_align == TextAlign::Justify,
+                base_mono: super::fonts::is_monospace_family(&styles.font_family),
             },
         ),
         LayoutContent::Children(_) | LayoutContent::Empty => 0.0,
@@ -1293,6 +1416,7 @@ fn layout_cell_lines(
     inner_w: f32,
     bold: bool,
 ) -> CellLines {
+    let base_mono_cell = super::fonts::is_monospace_family(&cell_styles.font_family);
     match content {
         LayoutContent::Text(text) => {
             if cell_styles.nowrap {
@@ -1360,6 +1484,7 @@ fn layout_cell_lines(
                         word_spacing_pt: cell_styles.word_spacing,
                         base_bold: bold,
                         justify: false,
+                        base_mono: base_mono_cell,
                     },
                 ))
             } else if cell_styles.truncate {
@@ -1373,6 +1498,7 @@ fn layout_cell_lines(
                         word_spacing_pt: cell_styles.word_spacing,
                         base_bold: bold,
                         justify: false,
+                        base_mono: base_mono_cell,
                     },
                 );
                 let mut first_line = all.into_iter().next();
@@ -1398,6 +1524,7 @@ fn layout_cell_lines(
                         word_spacing_pt: cell_styles.word_spacing,
                         base_bold: bold,
                         justify,
+                        base_mono: base_mono_cell,
                     },
                 ))
             }
@@ -1692,7 +1819,67 @@ pub fn paginate(layout: &LayoutTree, styled: &super::arena::DocumentArena) -> Pa
         pages: pager.pages,
         block_start_page: pager.block_start_page,
         anchor_positions: pager.anchor_positions,
+        text_units: consolidate_text_units(pager.text_units),
     }
+}
+
+/// Inline styling splits a painted line into several `DrawCommand::Text`
+/// fragments (per bold/italic/color run, plus a separate glyph per space). For
+/// Cmd+F we want one searchable line per text unit so `"hello page"` matches
+/// across runs. Fragments are grouped by `(page, y_rounded, block_id)`, sorted
+/// by `x`, and concatenated into a single TextUnit spanning their extents.
+fn consolidate_text_units(units: Vec<TextUnit>) -> Vec<TextUnit> {
+    if units.is_empty() {
+        return units;
+    }
+    // Group by line bucket.
+    let mut groups: std::collections::HashMap<(u32, i32, String), Vec<TextUnit>> =
+        std::collections::HashMap::new();
+    for u in units {
+        let y_bucket = (u.y * 10.0).round() as i32;
+        let key = (u.page, y_bucket, u.block_id.clone());
+        groups.entry(key).or_default().push(u);
+    }
+    let mut out: Vec<TextUnit> = groups
+        .into_values()
+        .map(|mut frags| {
+            frags.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+            let first = &frags[0];
+            let min_x = frags
+                .iter()
+                .map(|f| f.x)
+                .fold(f32::INFINITY, f32::min);
+            let max_right = frags
+                .iter()
+                .map(|f| f.x + f.w)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let max_h = frags
+                .iter()
+                .map(|f| f.h)
+                .fold(0.0_f32, f32::max);
+            let min_y = frags
+                .iter()
+                .map(|f| f.y)
+                .fold(f32::INFINITY, f32::min);
+            let text: String = frags.iter().map(|f| f.text.as_str()).collect();
+            TextUnit {
+                page: first.page,
+                x: min_x,
+                y: min_y,
+                w: (max_right - min_x).max(0.0),
+                h: max_h,
+                text,
+                block_id: first.block_id.clone(),
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        a.page
+            .cmp(&b.page)
+            .then_with(|| b.y.partial_cmp(&a.y).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    out
 }
 #[cfg(test)]
 mod tests {

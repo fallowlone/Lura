@@ -193,6 +193,10 @@ impl Parser {
     fn parse_content(&mut self, arena: &mut Vec<Block>) -> Result<Content, String> {
         match self.current().clone() {
             Token::RParen => Ok(Content::Empty),
+            Token::RawText(s) => {
+                self.advance()?;
+                Ok(Content::Text(dedent_code_body(&s)))
+            }
             Token::Text(s) => {
                 self.advance()?;
                 Ok(Content::Inline(parse_inline_nodes(&s)))
@@ -220,6 +224,47 @@ impl Parser {
             }
         }
     }
+}
+
+/// Strip a common leading-whitespace prefix from every non-blank line and drop
+/// a single leading/trailing blank line if present. Preserves internal blanks,
+/// in-line whitespace, and mid-line indentation beyond the common prefix.
+fn dedent_code_body(raw: &str) -> String {
+    let s = raw.strip_prefix('\n').unwrap_or(raw);
+    let s = s.strip_suffix('\n').unwrap_or(s);
+    let mut common: Option<usize> = None;
+    for line in s.split('\n') {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let indent = line.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+        common = Some(common.map_or(indent, |c| c.min(indent)));
+    }
+    let n = common.unwrap_or(0);
+    if n == 0 {
+        return s.to_string();
+    }
+    s.split('\n')
+        .map(|line| {
+            if line.len() >= n {
+                let mut it = line.char_indices();
+                let mut cut = 0;
+                for _ in 0..n {
+                    if let Some((i, c)) = it.next() {
+                        if c == ' ' || c == '\t' {
+                            cut = i + c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                &line[cut..]
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn parse_inline_nodes(input: &str) -> Vec<InlineNode> {

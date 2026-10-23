@@ -54,6 +54,26 @@ struct LuraEditorView: View {
     @State private var showPreview: Bool = true
     @State private var debounceTask: Task<Void, Never>?
 
+    // Find (Cmd+F)
+    @State private var findQuery: String = ""
+    @State private var isFindBarVisible: Bool = false
+    @State private var textUnits: [LuraTextUnit] = []
+    @State private var currentMatchIndex: Int = 0
+    @FocusState private var findFieldFocused: Bool
+
+    /// Units matching `findQuery`. Kept in state and refreshed only when the query or the
+    /// index changes, instead of re-filtering `textUnits` on every access during a render.
+    @State private var matches: [LuraTextUnit] = []
+
+    private func recomputeMatches() {
+        guard !findQuery.isEmpty else {
+            matches = []
+            return
+        }
+        let needle = findQuery.lowercased()
+        matches = textUnits.filter { $0.text.lowercased().contains(needle) }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -73,15 +93,37 @@ struct LuraEditorView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .navigation) {
                     Button {
-                        attemptClose()
+                        attemptEscape()
                     } label: {
                         Label("Close", systemImage: "chevron.backward")
                     }
                     .keyboardShortcut(.escape, modifiers: [])
-                    .help("Return to welcome screen")
+                    .help("Return to welcome screen (closes find bar first)")
                 }
 
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        toggleFindBar()
+                    } label: {
+                        Label("Find", systemImage: "magnifyingglass")
+                    }
+                    .keyboardShortcut("f", modifiers: [.command])
+                    .help("Find in document")
+
+                    Button("Next Match") {
+                        cycleMatch(forward: true)
+                    }
+                    .keyboardShortcut("g", modifiers: [.command])
+                    .hidden()
+                    .frame(width: 0, height: 0)
+
+                    Button("Previous Match") {
+                        cycleMatch(forward: false)
+                    }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .hidden()
+                    .frame(width: 0, height: 0)
+
                     Button {
                         saveDocument()
                     } label: {
@@ -114,6 +156,7 @@ struct LuraEditorView: View {
         .onAppear {
             appModel.editorIsDirty = document.isDirty
             applyPreviewOutput(LuraRenderFFI.renderPDF(source: document.text))
+            refreshTextIndex(source: document.text)
         }
         .onChange(of: document.text) { newValue in
             appModel.editorIsDirty = document.isDirty
@@ -122,12 +165,107 @@ struct LuraEditorView: View {
                 try? await Task.sleep(nanoseconds: previewDebounceNs)
                 guard !Task.isCancelled else { return }
                 applyPreviewOutput(LuraRenderFFI.renderPDF(source: newValue))
+                refreshTextIndex(source: newValue)
             }
+        }
+        .onChange(of: findQuery) { _ in
+            recomputeMatches()
+            currentMatchIndex = 0
         }
         .onDisappear {
             debounceTask?.cancel()
             appModel.editorIsDirty = false
         }
+    }
+
+    private func toggleFindBar() {
+        isFindBarVisible.toggle()
+        if isFindBarVisible {
+            findFieldFocused = true
+        } else {
+            findQuery = ""
+        }
+    }
+
+    private func cycleMatch(forward: Bool) {
+        let all = matches
+        guard !all.isEmpty else { return }
+        if forward {
+            currentMatchIndex = (currentMatchIndex + 1) % all.count
+        } else {
+            currentMatchIndex = (currentMatchIndex - 1 + all.count) % all.count
+        }
+    }
+
+    private func refreshTextIndex(source: String) {
+        switch LuraRenderFFI.extractText(source: source) {
+        case .success(let units):
+            textUnits = units
+            recomputeMatches()
+            if currentMatchIndex >= matches.count {
+                currentMatchIndex = 0
+            }
+        case .failure:
+            // Parse errors are surfaced via the preview pane; leave index stale.
+            break
+        }
+    }
+
+    @ViewBuilder
+    private var findBar: some View {
+        if isFindBarVisible {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Find in document", text: $findQuery)
+                    .textFieldStyle(.plain)
+                    .focused($findFieldFocused)
+                    .onSubmit { cycleMatch(forward: true) }
+                Text(matchCountLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button {
+                    cycleMatch(forward: false)
+                } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.borderless)
+                .disabled(matches.isEmpty)
+                Button {
+                    cycleMatch(forward: true)
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .disabled(matches.isEmpty)
+                Button {
+                    isFindBarVisible = false
+                    findQuery = ""
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .help("Close find bar (Esc)")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+        }
+    }
+
+    private var matchCountLabel: String {
+        let total = matches.count
+        if total == 0 { return findQuery.isEmpty ? "" : "0" }
+        return "\(currentMatchIndex + 1) / \(total)"
     }
 
     private var windowTitle: String {
@@ -144,25 +282,32 @@ struct LuraEditorView: View {
     }
 
     private var previewPane: some View {
-        ZStack {
-            PDFPreviewRepresentable(pdfData: previewPDFData)
-            if let err = previewError {
-                ScrollView {
-                    Text(err)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+        VStack(spacing: 0) {
+            findBar
+            ZStack {
+                PDFPreviewRepresentable(
+                    pdfData: previewPDFData,
+                    matches: matches,
+                    currentMatchIndex: currentMatchIndex
+                )
+                if let err = previewError {
+                    ScrollView {
+                        Text(err)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    }
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.92))
                 }
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.92))
             }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            .padding(8)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-        .padding(8)
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
@@ -206,6 +351,18 @@ struct LuraEditorView: View {
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Discard")
         return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    /// Esc handler shared by the toolbar Close button and the find bar. If the
+    /// find bar is visible, Esc dismisses it first without navigating away;
+    /// otherwise behaves like the old "back to welcome" action.
+    private func attemptEscape() {
+        if isFindBarVisible {
+            isFindBarVisible = false
+            findQuery = ""
+            return
+        }
+        attemptClose()
     }
 
     private func attemptClose() {
