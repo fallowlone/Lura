@@ -999,55 +999,15 @@ impl<'a> Paginator<'a> {
                 .map(|(&ci, &(_col_idx, cell_w))| {
                     let cell = &self.layout.nodes[ci];
                     let cell_styles = self.styled.get(cell.arena_id).styles.clone();
-                    let bold = cell_styles.font_weight == FontWeight::Bold;
                     let pad_v = cell_styles.padding.top * MM_TO_PT
                         + cell_styles.padding.bottom * MM_TO_PT;
                     let one_line_h = cell_styles.font_size * cell_styles.line_height;
                     match &cell.content {
-                        LayoutContent::Text(t) => {
+                        LayoutContent::Text(_) | LayoutContent::Inline(_) => {
                             if cell_styles.nowrap || cell_styles.truncate {
                                 one_line_h + pad_v
                             } else {
-                                let w = text_container_width_pt(
-                                    cell_w,
-                                    cell_styles.padding.left,
-                                    cell_styles.padding.right,
-                                );
-                                let lines = break_text(
-                                    t,
-                                    w,
-                                    cell_styles.font_size,
-                                    cell_styles.line_height,
-                                    bold,
-                                    cell_styles.letter_spacing,
-                                    cell_styles.word_spacing,
-                                );
-                                text_block_height(&lines) + pad_v
-                            }
-                        }
-                        LayoutContent::Inline(runs) => {
-                            if cell_styles.nowrap || cell_styles.truncate {
-                                one_line_h + pad_v
-                            } else {
-                                let w = text_container_width_pt(
-                                    cell_w,
-                                    cell_styles.padding.left,
-                                    cell_styles.padding.right,
-                                );
-                                let justify = cell_styles.justify
-                                    || cell_styles.text_align == TextAlign::Justify;
-                                inline_runs_block_height(
-                                    runs,
-                                    w,
-                                    &TextLayoutOpts {
-                                        font_size_pt: cell_styles.font_size,
-                                        line_height: cell_styles.line_height,
-                                        letter_spacing_pt: cell_styles.letter_spacing,
-                                        word_spacing_pt: cell_styles.word_spacing,
-                                        base_bold: bold,
-                                        justify,
-                                    },
-                                ) + pad_v
+                                wrapped_text_height(&cell.content, &cell_styles, cell_w) + pad_v
                             }
                         }
                         LayoutContent::Children(children) => {
@@ -1265,45 +1225,9 @@ impl<'a> Paginator<'a> {
         {
             Self::figure_placeholder_height_pt(&styles)
         } else {
-            let bold = styles.font_weight == FontWeight::Bold;
             match &node.content {
-                LayoutContent::Text(t) => {
-                    let w = text_container_width_pt(
-                        node.width,
-                        styles.padding.left,
-                        styles.padding.right,
-                    );
-                    let lines = break_text(
-                        t,
-                        w,
-                        styles.font_size,
-                        styles.line_height,
-                        bold,
-                        styles.letter_spacing,
-                        styles.word_spacing,
-                    );
-                    text_block_height(&lines)
-                }
-                LayoutContent::Inline(runs) => {
-                    let w = text_container_width_pt(
-                        node.width,
-                        styles.padding.left,
-                        styles.padding.right,
-                    );
-                    let justify =
-                        styles.justify || styles.text_align == super::styles::TextAlign::Justify;
-                    inline_runs_block_height(
-                        runs,
-                        w,
-                        &TextLayoutOpts {
-                            font_size_pt: styles.font_size,
-                            line_height: styles.line_height,
-                            letter_spacing_pt: styles.letter_spacing,
-                            word_spacing_pt: styles.word_spacing,
-                            base_bold: bold,
-                            justify,
-                        },
-                    )
+                LayoutContent::Text(_) | LayoutContent::Inline(_) => {
+                    wrapped_text_height(&node.content, &styles, node.width)
                 }
                 LayoutContent::Children(children) => {
                     children.iter().map(|&ci| self.estimate_height(ci)).sum()
@@ -1317,6 +1241,41 @@ impl<'a> Paginator<'a> {
 }
 
 // --- Cell-paint helpers ---
+
+/// Height of wrapped text or inline content in a box `width_bb` wide (horizontal padding is
+/// taken off for line breaking, vertical padding and margins are not included).
+fn wrapped_text_height(
+    content: &LayoutContent,
+    styles: &super::styles::ResolvedStyles,
+    width_bb: f32,
+) -> f32 {
+    let w = text_container_width_pt(width_bb, styles.padding.left, styles.padding.right);
+    let bold = styles.font_weight == FontWeight::Bold;
+    match content {
+        LayoutContent::Text(t) => text_block_height(&break_text(
+            t,
+            w,
+            styles.font_size,
+            styles.line_height,
+            bold,
+            styles.letter_spacing,
+            styles.word_spacing,
+        )),
+        LayoutContent::Inline(runs) => inline_runs_block_height(
+            runs,
+            w,
+            &TextLayoutOpts {
+                font_size_pt: styles.font_size,
+                line_height: styles.line_height,
+                letter_spacing_pt: styles.letter_spacing,
+                word_spacing_pt: styles.word_spacing,
+                base_bold: bold,
+                justify: styles.justify || styles.text_align == TextAlign::Justify,
+            },
+        ),
+        LayoutContent::Children(_) | LayoutContent::Empty => 0.0,
+    }
+}
 
 /// Text of one table cell after wrapping (or the single line for nowrap/truncate).
 enum CellLines {
