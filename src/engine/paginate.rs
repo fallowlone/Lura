@@ -701,38 +701,24 @@ impl<'a> Paginator<'a> {
 
     // --- List item with bullet ---
 
+    /// Plain-text item: the same path as inline content, with one unstyled run.
     fn place_list_item(&mut self, node_idx: LayoutNodeIdx, text: &str) -> f32 {
+        let run = InlineRun { text: text.to_string(), bold: false, italic: false, code: false, link: None };
+        self.place_list_item_inline(node_idx, &[run])
+    }
+
+    /// Marker ("•" or "1.") to the left of the item, aligned with the first baseline.
+    fn push_list_marker(&mut self, node_idx: LayoutNodeIdx) {
         let node = self.layout.nodes[node_idx].clone();
         let styles = self.styled.get(node.arena_id).styles.clone();
-        let bold = styles.font_weight == FontWeight::Bold;
-
-        let width = text_container_width_pt(node.width, styles.padding.left, styles.padding.right);
-        let lines = break_text(
-            text,
-            width,
-            styles.font_size,
-            styles.line_height,
-            bold,
-            styles.letter_spacing,
-            styles.word_spacing,
-        );
-        let block_h = text_block_height(&lines);
-
-        if self.cursor_y + block_h > CONTENT_BOTTOM && self.cursor_y > CONTENT_TOP {
-            self.new_page();
-        }
-
-        // Bullet "•" or "1." to the left of text start
-        let bullet_text = match self.list_item_counter {
+        let content = match self.list_item_counter {
             Some(n) => format!("{}.", n),
             None => "\u{2022}".to_string(),
         };
-        let bullet_x = node.x - 4.5 * MM_TO_PT;
-        let bullet_y = self.cursor_y + styles.font_size;
         self.push_cmd(DrawCommand::Text {
-            content: bullet_text,
-            x: bullet_x,
-            y: bullet_y,
+            content,
+            x: node.x - 4.5 * MM_TO_PT,
+            y: self.cursor_y + styles.font_size,
             font_size: styles.font_size,
             font_family: styles.font_family.clone(),
             bold: false,
@@ -741,28 +727,6 @@ impl<'a> Paginator<'a> {
             link_uri: None,
             link_width_pt: None,
         });
-
-        for (i, line) in lines.iter().enumerate() {
-            let y = self.cursor_y + styles.font_size + i as f32 * line.line_height_pt;
-            if y > CONTENT_BOTTOM {
-                break;
-            }
-            self.push_cmd(DrawCommand::Text {
-                content: line.text.clone(),
-                x: node.x,
-                y,
-                font_size: styles.font_size,
-                font_family: styles.font_family.clone(),
-                bold,
-                italic: styles.font_style == FontStyle::Italic,
-                color: styles.color,
-                link_uri: None,
-                link_width_pt: None,
-            });
-        }
-
-        self.cursor_y += block_h;
-        block_h
     }
 
     /// `ITEM(P(...))` and similar: layout has children, not direct text — draw marker + body.
@@ -785,24 +749,7 @@ impl<'a> Paginator<'a> {
             }
         }
         // Several blocks (or a nested list): draw the marker once, beside the first one.
-        let node = self.layout.nodes[list_item_idx].clone();
-        let styles = self.styled.get(node.arena_id).styles.clone();
-        let marker = match self.list_item_counter {
-            Some(n) => format!("{}.", n),
-            None => "\u{2022}".to_string(),
-        };
-        self.push_cmd(DrawCommand::Text {
-            content: marker,
-            x: node.x - 4.5 * MM_TO_PT,
-            y: self.cursor_y + styles.font_size,
-            font_size: styles.font_size,
-            font_family: styles.font_family.clone(),
-            bold: false,
-            italic: false,
-            color: styles.color,
-            link_uri: None,
-            link_width_pt: None,
-        });
+        self.push_list_marker(list_item_idx);
         self.list_item_counter = None; // nested lists number from their own parent
         let mut total = 0.0f32;
         for child_idx in child_indices {
@@ -835,24 +782,7 @@ impl<'a> Paginator<'a> {
             self.new_page();
         }
 
-        let bullet_text = match self.list_item_counter {
-            Some(n) => format!("{}.", n),
-            None => "\u{2022}".to_string(),
-        };
-        let bullet_x = node.x - 4.5 * MM_TO_PT;
-        let bullet_y = self.cursor_y + styles.font_size;
-        self.push_cmd(DrawCommand::Text {
-            content: bullet_text,
-            x: bullet_x,
-            y: bullet_y,
-            font_size: styles.font_size,
-            font_family: styles.font_family.clone(),
-            bold: false,
-            italic: false,
-            color: styles.color,
-            link_uri: None,
-            link_width_pt: None,
-        });
+        self.push_list_marker(list_item_idx);
 
         for (line_idx, line) in lines.iter().enumerate() {
             let baseline_y =
