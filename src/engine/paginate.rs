@@ -632,7 +632,7 @@ impl<'a> Paginator<'a> {
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
                 let baseline_y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
-                self.push_inline_line(line, block_x + padding_left, baseline_y, styles, bold, false);
+                self.push_inline_line(line, block_x + padding_left, baseline_y, styles, bold);
             }
             self.cursor_y = seg_top + seg_h;
             total += seg_h;
@@ -663,7 +663,8 @@ impl<'a> Paginator<'a> {
         });
     }
 
-    /// One line of styled fragments starting at `(x, baseline_y)`.
+    /// One line of styled fragments starting at `(x, baseline_y)`. Links are blue and underlined,
+    /// so they do not rely on color alone.
     fn push_inline_line(
         &mut self,
         line: &InlineLine,
@@ -671,7 +672,6 @@ impl<'a> Paginator<'a> {
         baseline_y: f32,
         styles: &super::styles::ResolvedStyles,
         bold: bool,
-        underline_links: bool,
     ) {
         let link_color = Color::from_hex(0x1D4ED8);
         let mut x_cursor = x;
@@ -693,7 +693,7 @@ impl<'a> Paginator<'a> {
                 link_uri: frag.link.clone(),
                 link_width_pt: frag.link.as_ref().map(|_| frag.width),
             });
-            if underline_links && frag.link.is_some() && !frag.text.trim().is_empty() {
+            if frag.link.is_some() && !frag.text.trim().is_empty() {
                 let underline_y = baseline_y + 1.0;
                 self.push_cmd(DrawCommand::Line {
                     x1: x_cursor,
@@ -821,7 +821,7 @@ impl<'a> Paginator<'a> {
             if baseline_y > CONTENT_BOTTOM {
                 break;
             }
-            self.push_inline_line(line, node.x, baseline_y, &styles, bold, true);
+            self.push_inline_line(line, node.x, baseline_y, &styles, bold);
         }
 
         self.cursor_y += block_h;
@@ -1159,7 +1159,7 @@ impl<'a> Paginator<'a> {
                             }
                             let x_off = align_offset(effective_align, inner_w, line.width);
                             let x = cell_x + padding_left + x_off;
-                            self.push_inline_line(line, x, baseline_y, &cell_styles, bold, false);
+                            self.push_inline_line(line, x, baseline_y, &cell_styles, bold);
                         }
                     }
                     CellLines::Children => {

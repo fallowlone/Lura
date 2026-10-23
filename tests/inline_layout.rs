@@ -109,3 +109,18 @@ fn unknown_attributes_are_reported_but_known_ones_are_not() {
     let unknown = engine::resolver::unknown_attributes(&doc);
     assert_eq!(unknown, [("LIST".to_string(), "style".to_string())]);
 }
+
+#[test]
+fn links_are_underlined_in_paragraphs_lists_and_table_cells() {
+    for src in [
+        "PAGE(P(see [x](http://a.example)))",
+        "PAGE(LIST(ITEM(P(see [x](http://a.example)))))",
+        "PAGE(TABLE(ROW(CELL(P(see [x](http://a.example))))))",
+    ] {
+        let svg = engine::render_svg(&parse_doc(src));
+        assert!(
+            svg.contains("<line") && svg.contains("stroke=\"rgb(29,78,216)\""),
+            "no underline for: {src}"
+        );
+    }
+}
