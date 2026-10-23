@@ -1147,127 +1147,7 @@ impl<'a> Paginator<'a> {
                     });
                 }
 
-                // Lay out text lines first (so `content_h` is known for vertical align).
-                // For nowrap/truncate we build a single line manually and skip break_*.
-                enum CellLines {
-                    Plain(Vec<TextLine>),
-                    Inline(Vec<InlineLine>),
-                    Children,
-                    None,
-                }
-
-                let cell_lines = match &cell.content {
-                    LayoutContent::Text(text) => {
-                        if cell_styles.nowrap {
-                            let t = text.replace('\n', " ");
-                            let w = text_width_pt_with_spacing(
-                                &t,
-                                cell_styles.font_size,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            );
-                            CellLines::Plain(vec![TextLine {
-                                text: t,
-                                width: w,
-                                line_height_pt: cell_styles.font_size * cell_styles.line_height,
-                                font_size: cell_styles.font_size,
-                            }])
-                        } else if cell_styles.truncate {
-                            let t = text.replace('\n', " ");
-                            let clipped = truncate_to_width(
-                                &t,
-                                inner_w,
-                                cell_styles.font_size,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            );
-                            let w = text_width_pt_with_spacing(
-                                &clipped,
-                                cell_styles.font_size,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            );
-                            CellLines::Plain(vec![TextLine {
-                                text: clipped,
-                                width: w,
-                                line_height_pt: cell_styles.font_size * cell_styles.line_height,
-                                font_size: cell_styles.font_size,
-                            }])
-                        } else {
-                            CellLines::Plain(break_text(
-                                text,
-                                inner_w,
-                                cell_styles.font_size,
-                                cell_styles.line_height,
-                                bold,
-                                cell_styles.letter_spacing,
-                                cell_styles.word_spacing,
-                            ))
-                        }
-                    }
-                    LayoutContent::Inline(runs) => {
-                        let justify = cell_styles.justify
-                            || cell_styles.text_align == TextAlign::Justify;
-                        if cell_styles.nowrap {
-                            // Ask break_inline_runs for a very wide width so it never wraps.
-                            CellLines::Inline(break_inline_runs(
-                                runs,
-                                f32::MAX / 4.0,
-                                &TextLayoutOpts {
-                                    font_size_pt: cell_styles.font_size,
-                                    line_height: cell_styles.line_height,
-                                    letter_spacing_pt: cell_styles.letter_spacing,
-                                    word_spacing_pt: cell_styles.word_spacing,
-                                    base_bold: bold,
-                                    justify: false,
-                                },
-                            ))
-                        } else if cell_styles.truncate {
-                            let all = break_inline_runs(
-                                runs,
-                                f32::MAX / 4.0,
-                                &TextLayoutOpts {
-                                    font_size_pt: cell_styles.font_size,
-                                    line_height: cell_styles.line_height,
-                                    letter_spacing_pt: cell_styles.letter_spacing,
-                                    word_spacing_pt: cell_styles.word_spacing,
-                                    base_bold: bold,
-                                    justify: false,
-                                },
-                            );
-                            let mut first_line = all.into_iter().next();
-                            if let Some(line) = first_line.as_mut() {
-                                truncate_inline_line(
-                                    line,
-                                    inner_w,
-                                    cell_styles.font_size,
-                                    bold,
-                                    cell_styles.letter_spacing,
-                                    cell_styles.word_spacing,
-                                );
-                            }
-                            CellLines::Inline(first_line.into_iter().collect())
-                        } else {
-                            CellLines::Inline(break_inline_runs(
-                                runs,
-                                inner_w,
-                                &TextLayoutOpts {
-                                    font_size_pt: cell_styles.font_size,
-                                    line_height: cell_styles.line_height,
-                                    letter_spacing_pt: cell_styles.letter_spacing,
-                                    word_spacing_pt: cell_styles.word_spacing,
-                                    base_bold: bold,
-                                    justify,
-                                },
-                            ))
-                        }
-                    }
-                    LayoutContent::Children(_) => CellLines::Children,
-                    LayoutContent::Empty => CellLines::None,
-                };
+                let cell_lines = layout_cell_lines(&cell.content, &cell_styles, inner_w, bold);
 
                 // Content height for vertical-align shift.
                 let content_h = match &cell_lines {
@@ -1437,6 +1317,137 @@ impl<'a> Paginator<'a> {
 }
 
 // --- Cell-paint helpers ---
+
+/// Text of one table cell after wrapping (or the single line for nowrap/truncate).
+enum CellLines {
+    Plain(Vec<TextLine>),
+    Inline(Vec<InlineLine>),
+    Children,
+    None,
+}
+
+/// Lay out a cell's text first, so the content height is known for vertical alignment.
+/// For nowrap/truncate a single line is built manually and `break_*` is skipped.
+fn layout_cell_lines(
+    content: &LayoutContent,
+    cell_styles: &super::styles::ResolvedStyles,
+    inner_w: f32,
+    bold: bool,
+) -> CellLines {
+    match content {
+        LayoutContent::Text(text) => {
+            if cell_styles.nowrap {
+                let t = text.replace('\n', " ");
+                let w = text_width_pt_with_spacing(
+                    &t,
+                    cell_styles.font_size,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                CellLines::Plain(vec![TextLine {
+                    text: t,
+                    width: w,
+                    line_height_pt: cell_styles.font_size * cell_styles.line_height,
+                    font_size: cell_styles.font_size,
+                }])
+            } else if cell_styles.truncate {
+                let t = text.replace('\n', " ");
+                let clipped = truncate_to_width(
+                    &t,
+                    inner_w,
+                    cell_styles.font_size,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                let w = text_width_pt_with_spacing(
+                    &clipped,
+                    cell_styles.font_size,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                );
+                CellLines::Plain(vec![TextLine {
+                    text: clipped,
+                    width: w,
+                    line_height_pt: cell_styles.font_size * cell_styles.line_height,
+                    font_size: cell_styles.font_size,
+                }])
+            } else {
+                CellLines::Plain(break_text(
+                    text,
+                    inner_w,
+                    cell_styles.font_size,
+                    cell_styles.line_height,
+                    bold,
+                    cell_styles.letter_spacing,
+                    cell_styles.word_spacing,
+                ))
+            }
+        }
+        LayoutContent::Inline(runs) => {
+            let justify = cell_styles.justify
+                || cell_styles.text_align == TextAlign::Justify;
+            if cell_styles.nowrap {
+                // Ask break_inline_runs for a very wide width so it never wraps.
+                CellLines::Inline(break_inline_runs(
+                    runs,
+                    f32::MAX / 4.0,
+                    &TextLayoutOpts {
+                        font_size_pt: cell_styles.font_size,
+                        line_height: cell_styles.line_height,
+                        letter_spacing_pt: cell_styles.letter_spacing,
+                        word_spacing_pt: cell_styles.word_spacing,
+                        base_bold: bold,
+                        justify: false,
+                    },
+                ))
+            } else if cell_styles.truncate {
+                let all = break_inline_runs(
+                    runs,
+                    f32::MAX / 4.0,
+                    &TextLayoutOpts {
+                        font_size_pt: cell_styles.font_size,
+                        line_height: cell_styles.line_height,
+                        letter_spacing_pt: cell_styles.letter_spacing,
+                        word_spacing_pt: cell_styles.word_spacing,
+                        base_bold: bold,
+                        justify: false,
+                    },
+                );
+                let mut first_line = all.into_iter().next();
+                if let Some(line) = first_line.as_mut() {
+                    truncate_inline_line(
+                        line,
+                        inner_w,
+                        cell_styles.font_size,
+                        bold,
+                        cell_styles.letter_spacing,
+                        cell_styles.word_spacing,
+                    );
+                }
+                CellLines::Inline(first_line.into_iter().collect())
+            } else {
+                CellLines::Inline(break_inline_runs(
+                    runs,
+                    inner_w,
+                    &TextLayoutOpts {
+                        font_size_pt: cell_styles.font_size,
+                        line_height: cell_styles.line_height,
+                        letter_spacing_pt: cell_styles.letter_spacing,
+                        word_spacing_pt: cell_styles.word_spacing,
+                        base_bold: bold,
+                        justify,
+                    },
+                ))
+            }
+        }
+        LayoutContent::Children(_) => CellLines::Children,
+        LayoutContent::Empty => CellLines::None,
+    }
+}
+
 
 fn align_offset(align: TextAlign, inner_w: f32, line_w: f32) -> f32 {
     if line_w >= inner_w {
