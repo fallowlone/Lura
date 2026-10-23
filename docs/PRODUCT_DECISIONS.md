@@ -15,6 +15,17 @@ Decisions called out as open in [PROGRESS.md](../PROGRESS.md) are recorded here 
 
 ---
 
+## Block IDs
+
+**Status:** decided (2026-10-23).
+
+- Automatic block IDs stay a **content hash** (FNV-1a of kind, attributes and content; children by their IDs). The ID doubles as the per-block integrity value.
+- Consequence: editing a block changes its ID. Anything that must survive edits (cross references, `{{page:id}}`, anchors, `diff` targets) uses an **explicit ID**: `P[intro](...)`.
+- Identical blocks get `-2`, `-3`, ... suffixes in document order; an auto ID never takes an explicit one. `lura validate` fails on a repeated explicit ID.
+- Positional IDs were considered and rejected: they break on insert and reorder, and cannot verify integrity.
+
+---
+
 ## Lura Graphics 1.0 subset
 
 **Status:** agreed baseline for the first “graphics release” epic (before full PDF graphics parity).
