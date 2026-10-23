@@ -266,20 +266,30 @@ fn text_width_pt_with_spacing_inner(
     width
 }
 
+/// Parsed once per face: parsing a 400 KB font on every measurement dominated render time.
+fn shaper_face(bold: bool, mono: bool) -> Option<&'static rustybuzz::Face<'static>> {
+    static FACES: [OnceLock<Option<rustybuzz::Face<'static>>>; 4] = [const { OnceLock::new() }; 4];
+    FACES[usize::from(mono) * 2 + usize::from(bold)]
+        .get_or_init(|| {
+            let source = if mono {
+                get_font_source_mono(bold).or_else(|| get_font_source_mono(false))?
+            } else {
+                get_font_source(bold)?
+            };
+            rustybuzz::Face::from_slice(source.data.as_ref(), source.face_index)
+        })
+        .as_ref()
+}
+
 fn shape_text_width_pt(text: &str, font_size_pt: f32, bold: bool, mono: bool) -> Option<f32> {
     if text.is_empty() {
         return Some(0.0);
     }
-    let source = if mono {
-        get_font_source_mono(bold).or_else(|| get_font_source_mono(false))?
-    } else {
-        get_font_source(bold)?
-    };
-    let rb_face = rustybuzz::Face::from_slice(source.data.as_ref(), source.face_index)?;
-    let ttf_face = ttf_parser::Face::parse(source.data.as_ref(), source.face_index).ok()?;
+    let rb_face = shaper_face(bold, mono)?;
+    let ttf_face = rb_face.as_ref();
     let mut buffer = UnicodeBuffer::new();
     buffer.push_str(text);
-    let glyph_buffer = rustybuzz::shape(&rb_face, &[], buffer);
+    let glyph_buffer = rustybuzz::shape(rb_face, &[], buffer);
     let upem = ttf_face.units_per_em() as f32;
     if upem <= 0.0 {
         return None;
@@ -290,7 +300,7 @@ fn shape_text_width_pt(text: &str, font_size_pt: f32, bold: bool, mono: bool) ->
     }
     let mut width_units = 0.0f32;
     for info in infos {
-        let gid = ttf_parser::GlyphId(info.glyph_id as u16);
+        let gid = rustybuzz::ttf_parser::GlyphId(info.glyph_id as u16);
         if let Some(adv) = ttf_face.glyph_hor_advance(gid) {
             width_units += adv as f32;
         } else {
