@@ -124,3 +124,9 @@ fn links_are_underlined_in_paragraphs_lists_and_table_cells() {
         );
     }
 }
+
+#[test]
+fn unknown_blocks_are_reported_once_and_known_ones_are_not() {
+    let doc = parse_doc("STYLES({#c: #FF0000}) PAGE(P(a) FOO(b) FOO(c) BAR(d) LIST(ITEM(x)))");
+    assert_eq!(engine::resolver::unknown_blocks(&doc), ["BAR", "FOO"]);
+}

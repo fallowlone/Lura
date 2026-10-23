@@ -341,6 +341,28 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) -> Ve
     unknown
 }
 
+/// Block names the engine does not know (sorted, without repeats), excluding `STYLES`.
+pub fn unknown_blocks(doc: &Document) -> Vec<String> {
+    fn walk(doc: &Document, id: AstNodeId, out: &mut Vec<String>) {
+        let block = doc.block(id);
+        if block.kind != "STYLES"
+            && matches!(BoxKind::parse(&block.kind), BoxKind::Unknown(_))
+            && !out.contains(&block.kind)
+        {
+            out.push(block.kind.clone());
+        }
+        for &child in doc.children_ids(id) {
+            walk(doc, child, out);
+        }
+    }
+    let mut out = Vec::new();
+    for &root in doc.root_ids() {
+        walk(doc, root, &mut out);
+    }
+    out.sort();
+    out
+}
+
 /// `(block kind, attribute)` for every attribute that has no effect, in document order.
 /// Silent typos like `style` instead of `type` are otherwise indistinguishable from valid input.
 pub fn unknown_attributes(doc: &Document) -> Vec<(String, String)> {

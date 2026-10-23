@@ -1,4 +1,5 @@
 use super::{ast::*, id, resolver, Parser};
+use crate::lexer::Token;
 use crate::lexer::Lexer;
 
 fn parse(input: &str) -> Document {
@@ -214,4 +215,38 @@ fn test_duplicate_explicit_ids_are_reported() {
     let mut lexer = Lexer::new("PAGE(P[a](x) P[a](y) P[b](z) P[b](w) P[c](v))");
     let doc = Parser::new(lexer.tokenize()).parse().expect("parse failed");
     assert_eq!(id::duplicate_explicit_ids(&doc), ["a", "b"]);
+}
+
+fn parse_err(input: &str) -> String {
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.tokenize();
+    let positions = lexer.token_positions();
+    Parser::new(tokens)
+        .with_positions(positions)
+        .parse()
+        .expect_err("expected a parse error")
+}
+
+#[test]
+fn test_parse_error_names_line_and_column() {
+    let err = parse_err("PAGE(\n  LIST(\n    ITEM(a LIST(x))\n  )\n)");
+    assert!(err.contains("line 3, column 12"), "{err}");
+    assert!(err.contains("expected ')'") && err.contains("LIST"), "{err}");
+}
+
+#[test]
+fn test_parse_error_at_end_of_input_points_at_the_end() {
+    let err = parse_err("PAGE(\n  P(a)");
+    assert!(err.contains("line 2"), "{err}");
+}
+
+#[test]
+fn test_positions_are_one_based_and_count_characters() {
+    let mut lexer = Lexer::new("P(Привет)\nH1(x)");
+    let tokens = lexer.tokenize();
+    let pos = lexer.token_positions();
+    assert_eq!(tokens.len(), pos.len());
+    let last_ident = tokens.iter().rposition(|t| matches!(t, Token::Ident(_))).unwrap();
+    assert_eq!((pos[last_ident].line, pos[last_ident].column), (2, 1));
+    assert_eq!((pos[0].line, pos[0].column), (1, 1));
 }

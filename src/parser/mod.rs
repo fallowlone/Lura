@@ -7,16 +7,38 @@ mod tests;
 
 use std::collections::HashMap;
 use ast::{Block, Content, Document, InlineNode, NodeId, Value};
-use crate::lexer::token::Token;
+use crate::lexer::token::{Pos, Token};
 
 pub struct Parser {
     tokens: Vec<Token>,
+    /// Source position per token (see `Lexer::token_positions`); empty when unknown.
+    positions: Vec<Pos>,
     pos: usize,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self { tokens, positions: Vec::new(), pos: 0 }
+    }
+
+    /// Attach token positions so errors can say where they happened.
+    pub fn with_positions(mut self, positions: Vec<Pos>) -> Self {
+        self.positions = positions;
+        self
+    }
+
+    /// ` at line L, column C` for the token at `idx`, or nothing when positions are unknown.
+    fn at(&self, idx: usize) -> String {
+        let last = self.positions.len().saturating_sub(1);
+        match self.positions.get(idx.min(last)) {
+            Some(p) => format!(" at line {}, column {}", p.line, p.column),
+            None => String::new(),
+        }
+    }
+
+    /// Error about the token that was just consumed.
+    fn unexpected(&self, expected: &str, got: &Token) -> String {
+        format!("expected {expected}, found {got}{}", self.at(self.pos.saturating_sub(1)))
     }
 
     fn current(&self) -> &Token {
@@ -25,7 +47,7 @@ impl Parser {
 
     fn advance(&mut self) -> Result<Token, String> {
         if self.pos >= self.tokens.len() {
-            return Err("unexpected end of input".into());
+            return Err(format!("unexpected end of input{}", self.at(self.pos)));
         }
         let t = self.tokens[self.pos].clone();
         self.pos += 1;
@@ -35,14 +57,14 @@ impl Parser {
     fn expect_ident(&mut self) -> Result<String, String> {
         match self.advance()? {
             Token::Ident(s) => Ok(s),
-            t => Err(format!("expected identifier, got {:?}", t)),
+            t => Err(self.unexpected("a block name", &t)),
         }
     }
 
     fn expect(&mut self, expected: &Token) -> Result<(), String> {
         let t = self.advance()?;
         if &t != expected {
-            Err(format!("expected {:?}, got {:?}", expected, t))
+            Err(self.unexpected(&expected.to_string(), &t))
         } else {
             Ok(())
         }
@@ -110,7 +132,7 @@ impl Parser {
                     Ok(Value::Var(s))
                 }
             }
-            t => Err(format!("expected value, got {:?}", t)),
+            t => Err(self.unexpected("a value", &t)),
         }
     }
 
