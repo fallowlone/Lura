@@ -18,6 +18,9 @@ pub struct Lexer {
     mode: Mode,
     paren_depth: usize, // tracks nested ( )
     brace_depth: usize, // tracks nested { }
+    last_block: String, // most recent block name, to tell CODE from other blocks
+    in_bracket: bool,   // inside [id], so its ident is not a block name
+    block_stack: Vec<bool>, // per open '(': is it a CODE block
 }
 
 impl Lexer {
@@ -28,6 +31,9 @@ impl Lexer {
             mode: Mode::Normal,
             paren_depth: 0,
             brace_depth: 0,
+            last_block: String::new(),
+            in_bracket: false,
+            block_stack: Vec::new(),
         }
     }
 
@@ -173,11 +179,21 @@ impl Lexer {
                 _ => { s.push(self.advance().unwrap()); }
             }
         }
+        if self.in_code() && !s.trim().is_empty() {
+            return Token::Text(s.trim_end().trim_start_matches(['\n', '\r']).to_string());
+        }
         Token::Text(s.trim().to_string())
     }
 
+    fn in_code(&self) -> bool {
+        self.block_stack.iter().any(|&is_code| is_code)
+    }
+
     fn next_token(&mut self) -> Token {
-        self.skip_whitespace();
+        // Inside CODE, leading whitespace of a line is indentation, not separator.
+        if !(self.mode == Mode::Content && self.in_code()) {
+            self.skip_whitespace();
+        }
 
         match self.mode {
             Mode::Content => {
@@ -185,7 +201,8 @@ impl Lexer {
                     None => Token::Eof,
                     Some(')') => {
                         self.advance();
-                        self.paren_depth -= 1;
+                        self.paren_depth = self.paren_depth.saturating_sub(1);
+                        self.block_stack.pop();
                         if self.paren_depth == 0 {
                             self.mode = Mode::Normal;
                         }
@@ -237,6 +254,7 @@ impl Lexer {
                     Some('(') => {
                         self.advance();
                         self.paren_depth += 1;
+                        self.block_stack.push(self.last_block == "CODE");
                         // peek: if next non-whitespace is { → attrs, else → content
                         let next = self.input[self.pos..].iter()
                             .find(|&&c| !c.is_whitespace())
@@ -251,6 +269,7 @@ impl Lexer {
                     Some(')') => {
                         self.advance();
                         self.paren_depth = self.paren_depth.saturating_sub(1);
+                        self.block_stack.pop();
                         Token::RParen
                     }
                     Some('{') => {
@@ -261,13 +280,21 @@ impl Lexer {
                     }
                     Some('[') => {
                         self.advance();
+                        self.in_bracket = true;
                         Token::LBracket
                     }
                     Some(']') => {
                         self.advance();
+                        self.in_bracket = false;
                         Token::RBracket
                     }
-                    Some(c) if c.is_alphabetic() => Token::Ident(self.read_ident()),
+                    Some(c) if c.is_alphabetic() => {
+                        let ident = self.read_ident();
+                        if !self.in_bracket {
+                            self.last_block = ident.clone();
+                        }
+                        Token::Ident(ident)
+                    }
                     _ => { self.advance(); self.next_token() }
                 }
             }

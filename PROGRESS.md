@@ -114,9 +114,9 @@ Rules:
 - [x] `taffy` layout (Grid/Flex)
 - [x] Pagination `LayoutTree → PageTree` (A4)
 - [x] `unicode-linebreak` for breaks
-- [x] `fontdb` for system fonts
+- [x] Bundled Liberation Sans/Mono (`assets/fonts`, `engine::fonts`) replace system-font lookup (`fontdb` removed)
 - [x] `rustybuzz` shaping for measurement
-- [x] PDF backend (`pdf-writer`, built-in Type1 + WinAnsi; TrueType/ToUnicode = future)
+- [x] PDF backend (`pdf-writer`, embedded Liberation subsets as Type0/CIDFontType2 + ToUnicode; CJK/emoji = future)
 - [x] Painter API skeleton
 - [x] WGPU backend scaffold behind `wgpu-preview` (stub; optional deps include `wgpu` 28 + `glyphon`)
 - [x] Inline layout v1: line builder over runs + mixed-style PDF/SVG

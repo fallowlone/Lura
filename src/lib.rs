@@ -4,38 +4,7 @@ pub mod renderer;
 pub mod engine;
 
 use std::ffi::{CStr, CString};
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Write;
 use std::os::raw::c_char;
-
-// #region agent log
-fn lura_agent_debug_ffi_line(content: &str, pdf: &[u8]) {
-    let mut sh = DefaultHasher::new();
-    content.hash(&mut sh);
-    let src_h = sh.finish();
-    let mut ph = DefaultHasher::new();
-    pdf.len().hash(&mut ph);
-    let prefix = pdf.len().min(8192);
-    pdf[..prefix].hash(&mut ph);
-    let pdf_h = ph.finish();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let line = format!(
-        "{{\"sessionId\":\"8cc234\",\"hypothesisId\":\"H2\",\"location\":\"src/lib.rs:parse_and_render_pdf\",\"message\":\"ffi_render_ok\",\"data\":{{\"src_len\":{},\"pdf_len\":{},\"src_hash\":\"{:x}\",\"pdf_prefix_hash\":\"{:x}\"}},\"timestamp\":{}}}\n",
-        content.len(),
-        pdf.len(),
-        src_h,
-        pdf_h,
-        ts
-    );
-    let path = "/Users/artemmac/programming/personal/lura/.cursor/debug-8cc234.log";
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
-// #endregion
 
 /// Outcome of [`lura_render_pdf`]: either PDF bytes or a UTF-8 error message (parse/layout).
 ///
@@ -119,9 +88,6 @@ fn parse_and_render_pdf(content: &str) -> LuraPdfResult {
         };
     } else {
         let mut pdf = pdf;
-        // #region agent log
-        lura_agent_debug_ffi_line(content, pdf.as_slice());
-        // #endregion
         let pdf_len = pdf.len();
         let pdf_cap = pdf.capacity();
         let pdf_ptr = pdf.as_mut_ptr();

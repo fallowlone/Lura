@@ -5,6 +5,7 @@ pub mod introspection;
 pub mod styles;
 pub mod resolver;
 pub mod layout;
+pub mod fonts;
 pub mod text;
 pub mod paginate;
 pub mod backend;

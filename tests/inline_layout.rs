@@ -52,3 +52,45 @@ fn render_cache_regression_same_bytes() {
     let second = engine::render(&doc, ExportOptions { format: ExportFormat::Pdf });
     assert_eq!(first, second);
 }
+
+#[test]
+fn huge_colspan_is_clamped_and_renders() {
+    let src = "PAGE(TABLE(ROW(CELL({colspan: 99999999999} a)CELL(b))))";
+    let mut doc = lura::parser::Parser::new(lura::lexer::Lexer::new(src).tokenize())
+        .parse()
+        .expect("parse");
+    doc = lura::parser::resolver::resolve(doc);
+    doc = lura::parser::id::assign_ids(doc);
+    assert!(lura::engine::render_pdf(&doc).starts_with(b"%PDF"));
+}
+
+fn svg_texts(input: &str) -> Vec<(f32, String)> {
+    let svg = engine::render_svg(&parse_doc(input));
+    svg.split("<text ")
+        .skip(1)
+        .map(|t| {
+            let x = t.split("x=\"").nth(1).unwrap().split('"').next().unwrap();
+            let body = t.split('>').nth(1).unwrap().split('<').next().unwrap();
+            (x.parse().unwrap(), body.to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn list_items_get_markers_for_plain_text_and_multiple_blocks() {
+    let t: Vec<String> = svg_texts("PAGE(LIST({type: ordered} ITEM(a) ITEM(P(x) P(y))))")
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect();
+    assert_eq!(t, ["1.", "a", "2.", "x", "y"]);
+}
+
+#[test]
+fn code_block_keeps_indent_and_uses_courier_advance() {
+    let t = svg_texts("PAGE(CODE(P(fn main())\nP(    four)))");
+    // "fn" (2 chars) is followed by a space fragment exactly 2 * 0.6 em later.
+    let (x_fn, _) = &t[0];
+    let (x_space, _) = &t[1];
+    assert!((x_space - x_fn - 12.0).abs() < 0.1, "fn advance {}", x_space - x_fn);
+    assert!(t.iter().any(|(_, s)| s == "    "), "indentation lost: {t:?}");
+}

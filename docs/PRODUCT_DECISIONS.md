@@ -39,4 +39,4 @@ Tracked for upcoming work, not part of the counters/introspection milestone:
 | FIGURE end-to-end           | Parser → layout → export beyond placeholder when assets are wired.            |
 | CI                          | `cargo test` and `cargo clippy` on push (add workflow if missing).            |
 | WGPU preview                | Replace stub behind `wgpu-preview` when preview UX is defined.                |
-| TrueType + ToUnicode in PDF | Unicode beyond WinAnsi; overlaps Graphics phase A.                            |
+| PDF fallback faces          | CJK/emoji (Liberation covers Latin, Cyrillic, Greek); overlaps Graphics phase A. |
