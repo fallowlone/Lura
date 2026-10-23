@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::parser::ast::{Content, Document, InlineNode, NodeId, Value};
 
@@ -9,14 +9,14 @@ use crate::parser::ast::{Content, Document, InlineNode, NodeId, Value};
 /// Auto IDs are unique: a repeat of an already used ID gets `-2`, `-3`, ... in document order,
 /// and an auto ID never takes one that is written explicitly anywhere in the document.
 pub fn assign_ids(mut doc: Document) -> Document {
-    let mut used = HashSet::new();
+    let mut pool = IdPool::default();
     doc.for_each_block_mut(|block| {
         if !block.id.is_empty() {
-            used.insert(block.id.clone());
+            pool.used.insert(block.id.clone());
         }
     });
     for root in doc.root_ids().to_vec() {
-        assign_block_id(root, &mut doc, &mut used);
+        assign_block_id(root, &mut doc, &mut pool);
     }
     doc
 }
@@ -40,17 +40,31 @@ pub fn duplicate_explicit_ids(doc: &Document) -> Vec<String> {
     dups
 }
 
-fn unique_id(base: String, used: &mut HashSet<String>) -> String {
-    let mut id = base.clone();
-    let mut n = 1;
-    while !used.insert(id.clone()) {
-        n += 1;
-        id = format!("{base}-{n}");
-    }
-    id
+/// IDs taken so far, plus the last suffix handed out per base so that repeats do not rescan
+/// every earlier `-2`, `-3`, ... (thousands of identical blocks would be quadratic).
+#[derive(Default)]
+struct IdPool {
+    used: HashSet<String>,
+    last_suffix: HashMap<String, u32>,
 }
 
-fn assign_block_id(root: NodeId, doc: &mut Document, used: &mut HashSet<String>) {
+impl IdPool {
+    fn unique(&mut self, base: String) -> String {
+        if self.used.insert(base.clone()) {
+            return base;
+        }
+        let n = self.last_suffix.entry(base.clone()).or_insert(1);
+        loop {
+            *n += 1;
+            let id = format!("{base}-{n}");
+            if self.used.insert(id.clone()) {
+                return id;
+            }
+        }
+    }
+}
+
+fn assign_block_id(root: NodeId, doc: &mut Document, pool: &mut IdPool) {
     // Iterative post-order: (node, visited_children)
     let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
 
@@ -66,7 +80,7 @@ fn assign_block_id(root: NodeId, doc: &mut Document, used: &mut HashSet<String>)
         }
 
         if doc.block(node_id).id.is_empty() {
-            let new_id = unique_id(compute_auto_id(node_id, doc), used);
+            let new_id = pool.unique(compute_auto_id(node_id, doc));
             doc.block_mut(node_id).id = new_id;
         }
     }
