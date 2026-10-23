@@ -27,7 +27,17 @@ fn main() {
             let tokens = lexer.tokenize();
             let mut parser = Parser::new(tokens);
             match parser.parse() {
-                Ok(_) => println!("✓ valid"),
+                Ok(doc) => {
+                    let dups = lura::parser::id::duplicate_explicit_ids(&doc);
+                    if !dups.is_empty() {
+                        eprintln!("error: duplicate block ids: {}", dups.join(", "));
+                        process::exit(1);
+                    }
+                    for (kind, key) in engine::resolver::unknown_attributes(&doc) {
+                        eprintln!("warning: {kind}: unknown attribute '{key}' has no effect");
+                    }
+                    println!("✓ valid");
+                }
                 Err(e) => {
                     eprintln!("error: {e}");
                     process::exit(1);

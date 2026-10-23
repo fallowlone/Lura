@@ -208,3 +208,10 @@ fn test_auto_id_never_takes_an_explicit_id() {
     let ids = all_ids(&doc);
     assert_eq!(ids.iter().filter(|i| **i == taken).count(), 1, "{ids:?}");
 }
+
+#[test]
+fn test_duplicate_explicit_ids_are_reported() {
+    let mut lexer = Lexer::new("PAGE(P[a](x) P[a](y) P[b](z) P[b](w) P[c](v))");
+    let doc = Parser::new(lexer.tokenize()).parse().expect("parse failed");
+    assert_eq!(id::duplicate_explicit_ids(&doc), ["a", "b"]);
+}

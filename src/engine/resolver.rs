@@ -112,7 +112,12 @@ fn parse_text_align(s: &str) -> TextAlign {
 }
 
 /// Applies explicit block attrs on top of accumulated styles.
-fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
+/// Attributes read outside `apply_attrs` (assets and text export).
+const NON_STYLE_ATTRS: [&str; 3] = ["src", "alt", "caption"];
+
+/// Applies the block's attributes to `styles` and returns the keys nobody recognised.
+fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) -> Vec<String> {
+    let mut unknown = Vec::new();
     for (key, value) in &block.attrs {
         match key.as_str() {
             "font-size" => {
@@ -328,9 +333,35 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
                     styles.page_footer = Some(s.clone());
                 }
             }
-            _ => {}
+            k if NON_STYLE_ATTRS.contains(&k) => {}
+            _ => unknown.push(key.clone()),
         }
     }
+    unknown.sort();
+    unknown
+}
+
+/// `(block kind, attribute)` for every attribute that has no effect, in document order.
+/// Silent typos like `style` instead of `type` are otherwise indistinguishable from valid input.
+pub fn unknown_attributes(doc: &Document) -> Vec<(String, String)> {
+    fn walk(doc: &Document, id: AstNodeId, out: &mut Vec<(String, String)>) {
+        let block = doc.block(id);
+        if block.kind != "STYLES" {
+            let kind = BoxKind::parse(&block.kind);
+            let mut scratch = ResolvedStyles::default();
+            for key in apply_attrs(&mut scratch, block, &kind) {
+                out.push((block.kind.clone(), key));
+            }
+        }
+        for &child in doc.children_ids(id) {
+            walk(doc, child, out);
+        }
+    }
+    let mut out = Vec::new();
+    for &root in doc.root_ids() {
+        walk(doc, root, &mut out);
+    }
+    out
 }
 
 fn value_to_f32(value: &Value) -> Option<f32> {

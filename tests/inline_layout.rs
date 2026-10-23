@@ -102,3 +102,10 @@ fn render_cache_distinguishes_inline_styling_with_equal_explicit_ids() {
     assert!(styled.contains("font-weight=\"700\""));
     assert!(!plain.contains("font-weight=\"700\""), "cached output of the bold document was reused");
 }
+
+#[test]
+fn unknown_attributes_are_reported_but_known_ones_are_not() {
+    let doc = parse_doc("PAGE(LIST({style: ordered, type: ordered} ITEM(a)) IMAGE({src: \"x\", alt: \"y\"}))");
+    let unknown = engine::resolver::unknown_attributes(&doc);
+    assert_eq!(unknown, [("LIST".to_string(), "style".to_string())]);
+}

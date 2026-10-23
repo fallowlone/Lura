@@ -21,6 +21,25 @@ pub fn assign_ids(mut doc: Document) -> Document {
     doc
 }
 
+/// Explicit IDs written more than once (sorted). Call before `assign_ids`.
+pub fn duplicate_explicit_ids(doc: &Document) -> Vec<String> {
+    fn walk(doc: &Document, id: NodeId, seen: &mut HashSet<String>, dups: &mut Vec<String>) {
+        let block = doc.block(id);
+        if !block.id.is_empty() && !seen.insert(block.id.clone()) && !dups.contains(&block.id) {
+            dups.push(block.id.clone());
+        }
+        for &child in doc.children_ids(id) {
+            walk(doc, child, seen, dups);
+        }
+    }
+    let (mut seen, mut dups) = (HashSet::new(), Vec::new());
+    for &root in doc.root_ids() {
+        walk(doc, root, &mut seen, &mut dups);
+    }
+    dups.sort();
+    dups
+}
+
 fn unique_id(base: String, used: &mut HashSet<String>) -> String {
     let mut id = base.clone();
     let mut n = 1;
