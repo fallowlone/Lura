@@ -23,12 +23,12 @@ Earlier (2026-04-11):
 | Exports        | JSON, text, PDF, SVG via `lura convert` / `lura render`                                                                                    |
 | macOS preview  | Lura host + Quick Look use `PDFKit` + `lura_render_pdf` / `lura_free_pdf_result` (same bytes as engine PDF)                                |
 | CLI            | clap subcommands: parse, validate, convert, render, printers, print                                                                        |
-| Gaps vs vision | Formal spec doc, `diff`/`validate` depth, certificate tooling, figure block, PDF Unicode beyond WinAnsi (TrueType path), real WGPU preview |
+| Gaps vs vision | Formal spec doc, `diff`/`validate` depth, certificate tooling, figure block, PDF glyphs beyond Liberation coverage (CJK, emoji), real WGPU preview     |
 
 ## Suggested next work (priority-agnostic)
 
 1. **Specification** — extend [docs/SPEC.md](docs/SPEC.md) beyond counters/introspection; keep versioned.
-2. **PDF typography** — embed TrueType + ToUnicode (noted as v3 in `pdf.rs` comments).
+2. **PDF fonts** — done for Latin/Cyrillic/Greek (bundled Liberation subsets + ToUnicode). Open: CJK/emoji fallback faces, Flate-compress font and content streams.
 3. **Diff** — `lura diff` on AST or stable IDs (git-friendly story from CLAUDE.md).
 4. **Block coverage** — `FIGURE` (and any missing semantic blocks) end-to-end parser → layout → export.
 5. **WGPU** — replace stub behind `wgpu-preview` when preview UX is defined.
