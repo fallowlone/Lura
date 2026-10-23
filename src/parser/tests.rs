@@ -322,3 +322,20 @@ fn test_positions_are_one_based_and_count_characters() {
     assert_eq!((pos[last_ident].line, pos[last_ident].column), (2, 1));
     assert_eq!((pos[0].line, pos[0].column), (1, 1));
 }
+
+#[test]
+fn test_many_identical_blocks_get_unique_ids_quickly() {
+    let src = format!("PAGE({})", "P(line)\n".repeat(8000));
+    let doc = {
+        let mut lexer = Lexer::new(&src);
+        let doc = Parser::new(lexer.tokenize()).parse().expect("parse failed");
+        let doc = resolver::resolve(doc);
+        let started = std::time::Instant::now();
+        let doc = id::assign_ids(doc);
+        assert!(started.elapsed().as_secs_f32() < 2.0, "assign_ids took {:?}", started.elapsed());
+        doc
+    };
+    let ids = all_ids(&doc);
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len());
+}
