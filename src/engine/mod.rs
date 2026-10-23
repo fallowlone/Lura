@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
-use crate::parser::ast::{Content, Document, NodeId, Value};
+use crate::parser::ast::{Content, Document, InlineNode, NodeId, Value};
 
 static RENDER_CACHE: OnceLock<Mutex<HashMap<u64, Vec<u8>>>> = OnceLock::new();
 const RENDER_CACHE_LIMIT: usize = 32;
@@ -156,7 +156,7 @@ fn hash_block(doc: &Document, id: NodeId, hasher: &mut DefaultHasher) {
         }
         Content::Inline(nodes) => {
             4u8.hash(hasher);
-            Document::inline_text(nodes).hash(hasher);
+            hash_inline(nodes, hasher);
         }
         Content::Children(children) => {
             2u8.hash(hasher);
@@ -166,6 +166,36 @@ fn hash_block(doc: &Document, id: NodeId, hasher: &mut DefaultHasher) {
         }
         Content::Empty => {
             3u8.hash(hasher);
+        }
+    }
+}
+
+/// Hashes the full inline structure: emphasis, strong, code and link targets change the output.
+fn hash_inline(nodes: &[InlineNode], hasher: &mut DefaultHasher) {
+    nodes.len().hash(hasher);
+    for node in nodes {
+        match node {
+            InlineNode::TextRun(t) => {
+                1u8.hash(hasher);
+                t.hash(hasher);
+            }
+            InlineNode::CodeSpan(t) => {
+                2u8.hash(hasher);
+                t.hash(hasher);
+            }
+            InlineNode::Emphasis(children) => {
+                3u8.hash(hasher);
+                hash_inline(children, hasher);
+            }
+            InlineNode::Strong(children) => {
+                4u8.hash(hasher);
+                hash_inline(children, hasher);
+            }
+            InlineNode::LinkSpan { text, href } => {
+                5u8.hash(hasher);
+                hash_inline(text, hasher);
+                href.hash(hasher);
+            }
         }
     }
 }

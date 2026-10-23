@@ -175,3 +175,43 @@ fn test_nested_blocks_all_get_ids() {
         panic!("Expected Children content");
     }
 }
+
+fn all_ids(doc: &Document) -> Vec<String> {
+    fn walk(doc: &Document, id: NodeId, out: &mut Vec<String>) {
+        out.push(doc.block(id).id.clone());
+        for &c in doc.children_ids(id) {
+            walk(doc, c, out);
+        }
+    }
+    let mut out = Vec::new();
+    for &r in doc.root_ids() {
+        walk(doc, r, &mut out);
+    }
+    out
+}
+
+#[test]
+fn test_identical_blocks_get_unique_ids() {
+    let doc = parse("PAGE(P(Yes) P(Yes) P(Yes))");
+    let ids = all_ids(&doc);
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "duplicate ids: {ids:?}");
+    // The first occurrence keeps the plain content hash; later ones are numbered in document order.
+    assert!(ids[2].ends_with("-2") && ids[3].ends_with("-3"), "{ids:?}");
+}
+
+#[test]
+fn test_auto_id_never_takes_an_explicit_id() {
+    let plain = parse("PAGE(P(Yes))");
+    let taken = plain.block(plain.children_ids(plain.root_ids()[0])[0]).id.clone();
+    let doc = parse(&format!("PAGE(P(Yes) P[{taken}](other))"));
+    let ids = all_ids(&doc);
+    assert_eq!(ids.iter().filter(|i| **i == taken).count(), 1, "{ids:?}");
+}
+
+#[test]
+fn test_duplicate_explicit_ids_are_reported() {
+    let mut lexer = Lexer::new("PAGE(P[a](x) P[a](y) P[b](z) P[b](w) P[c](v))");
+    let doc = Parser::new(lexer.tokenize()).parse().expect("parse failed");
+    assert_eq!(id::duplicate_explicit_ids(&doc), ["a", "b"]);
+}

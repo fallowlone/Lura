@@ -48,7 +48,21 @@ pub unsafe extern "C" fn lura_render_pdf(content_ptr: *const c_char) -> *mut Lur
         }
     };
 
-    Box::into_raw(Box::new(parse_and_render_pdf(content)))
+    Box::into_raw(Box::new(guard_panics(|| parse_and_render_pdf(content))))
+}
+
+/// A panic must not unwind across the C boundary (that aborts the host process, e.g. Quick Look).
+fn guard_panics(render: impl FnOnce() -> LuraPdfResult) -> LuraPdfResult {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(render)).unwrap_or_else(|_| {
+        LuraPdfResult {
+            pdf_ptr: std::ptr::null_mut(),
+            pdf_len: 0,
+            pdf_cap: 0,
+            error_ptr: CString::new("Internal error while rendering the document")
+                .expect("static C string")
+                .into_raw(),
+        }
+    })
 }
 
 fn parse_and_render_pdf(content: &str) -> LuraPdfResult {
@@ -146,6 +160,15 @@ mod ffi_tests {
             assert_eq!(header, b"%PDF");
             lura_free_pdf_result(ptr);
         }
+    }
+
+    #[test]
+    fn panic_during_render_becomes_an_error_result() {
+        let r = guard_panics(|| panic!("boom"));
+        assert_eq!(r.pdf_len, 0);
+        assert!(r.pdf_ptr.is_null());
+        let msg = unsafe { CString::from_raw(r.error_ptr) };
+        assert!(msg.to_str().unwrap().contains("Internal error"));
     }
 
     #[test]

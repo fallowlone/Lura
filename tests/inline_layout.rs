@@ -94,3 +94,33 @@ fn code_block_keeps_indent_and_uses_courier_advance() {
     assert!((x_space - x_fn - 12.0).abs() < 0.1, "fn advance {}", x_space - x_fn);
     assert!(t.iter().any(|(_, s)| s == "    "), "indentation lost: {t:?}");
 }
+
+#[test]
+fn render_cache_distinguishes_inline_styling_with_equal_explicit_ids() {
+    let styled = engine::render_svg(&parse_doc("PAGE(P[k](see **this** [x](http://a.example)))"));
+    let plain = engine::render_svg(&parse_doc("PAGE(P[k](see this [x](http://b.example)))"));
+    assert!(styled.contains("font-weight=\"700\""));
+    assert!(!plain.contains("font-weight=\"700\""), "cached output of the bold document was reused");
+}
+
+#[test]
+fn unknown_attributes_are_reported_but_known_ones_are_not() {
+    let doc = parse_doc("PAGE(LIST({style: ordered, type: ordered} ITEM(a)) IMAGE({src: \"x\", alt: \"y\"}))");
+    let unknown = engine::resolver::unknown_attributes(&doc);
+    assert_eq!(unknown, [("LIST".to_string(), "style".to_string())]);
+}
+
+#[test]
+fn links_are_underlined_in_paragraphs_lists_and_table_cells() {
+    for src in [
+        "PAGE(P(see [x](http://a.example)))",
+        "PAGE(LIST(ITEM(P(see [x](http://a.example)))))",
+        "PAGE(TABLE(ROW(CELL(P(see [x](http://a.example))))))",
+    ] {
+        let svg = engine::render_svg(&parse_doc(src));
+        assert!(
+            svg.contains("<line") && svg.contains("stroke=\"rgb(29,78,216)\""),
+            "no underline for: {src}"
+        );
+    }
+}
