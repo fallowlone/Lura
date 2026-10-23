@@ -571,7 +571,6 @@ impl<'a> Paginator<'a> {
             return 0.0;
         }
         let segments = self.compute_line_segments(lines.iter().map(|l| l.line_height_pt));
-        let italic = styles.font_style == FontStyle::Italic;
         let mut total = 0.0f32;
         for (idx, (a, b)) in segments.iter().enumerate() {
             if idx > 0 {
@@ -592,18 +591,7 @@ impl<'a> Paginator<'a> {
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
                 let y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
-                self.push_cmd(DrawCommand::Text {
-                    content: line.text.clone(),
-                    x: block_x + padding_left,
-                    y,
-                    font_size: styles.font_size,
-                    font_family: styles.font_family.clone(),
-                    bold,
-                    italic,
-                    color: styles.color,
-                    link_uri: None,
-                    link_width_pt: None,
-                });
+                self.push_text_line(line, block_x + padding_left, y, styles, bold);
             }
             self.cursor_y = seg_top + seg_h;
             total += seg_h;
@@ -624,7 +612,6 @@ impl<'a> Paginator<'a> {
             return 0.0;
         }
         let segments = self.compute_line_segments(lines.iter().map(|l| l.line_height_pt));
-        let italic_base = styles.font_style == FontStyle::Italic;
         let mut total = 0.0f32;
         for (idx, (a, b)) in segments.iter().enumerate() {
             if idx > 0 {
@@ -645,36 +632,80 @@ impl<'a> Paginator<'a> {
             }
             for (k, line) in lines[*a..*b].iter().enumerate() {
                 let baseline_y = seg_top + styles.font_size + k as f32 * line.line_height_pt;
-                let mut x_cursor = block_x + padding_left;
-                for frag in &line.fragments {
-                    let font_family = if frag.code {
-                        "Courier".to_string()
-                    } else {
-                        styles.font_family.clone()
-                    };
-                    self.push_cmd(DrawCommand::Text {
-                        content: frag.text.clone(),
-                        x: x_cursor,
-                        y: baseline_y,
-                        font_size: styles.font_size,
-                        font_family,
-                        bold: bold || frag.bold,
-                        italic: italic_base || frag.italic,
-                        color: if frag.link.is_some() {
-                            Color::from_hex(0x1D4ED8)
-                        } else {
-                            styles.color
-                        },
-                        link_uri: frag.link.clone(),
-                        link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                    });
-                    x_cursor += frag.width;
-                }
+                self.push_inline_line(line, block_x + padding_left, baseline_y, styles, bold, false);
             }
             self.cursor_y = seg_top + seg_h;
             total += seg_h;
         }
         total
+    }
+
+    /// One line of plain text at `(x, baseline_y)`.
+    fn push_text_line(
+        &mut self,
+        line: &TextLine,
+        x: f32,
+        baseline_y: f32,
+        styles: &super::styles::ResolvedStyles,
+        bold: bool,
+    ) {
+        self.push_cmd(DrawCommand::Text {
+            content: line.text.clone(),
+            x,
+            y: baseline_y,
+            font_size: styles.font_size,
+            font_family: styles.font_family.clone(),
+            bold,
+            italic: styles.font_style == FontStyle::Italic,
+            color: styles.color,
+            link_uri: None,
+            link_width_pt: None,
+        });
+    }
+
+    /// One line of styled fragments starting at `(x, baseline_y)`.
+    fn push_inline_line(
+        &mut self,
+        line: &InlineLine,
+        x: f32,
+        baseline_y: f32,
+        styles: &super::styles::ResolvedStyles,
+        bold: bool,
+        underline_links: bool,
+    ) {
+        let link_color = Color::from_hex(0x1D4ED8);
+        let mut x_cursor = x;
+        for frag in &line.fragments {
+            let font_family = if frag.code {
+                "Courier".to_string()
+            } else {
+                styles.font_family.clone()
+            };
+            self.push_cmd(DrawCommand::Text {
+                content: frag.text.clone(),
+                x: x_cursor,
+                y: baseline_y,
+                font_size: styles.font_size,
+                font_family,
+                bold: bold || frag.bold,
+                italic: (styles.font_style == FontStyle::Italic) || frag.italic,
+                color: if frag.link.is_some() { link_color } else { styles.color },
+                link_uri: frag.link.clone(),
+                link_width_pt: frag.link.as_ref().map(|_| frag.width),
+            });
+            if underline_links && frag.link.is_some() && !frag.text.trim().is_empty() {
+                let underline_y = baseline_y + 1.0;
+                self.push_cmd(DrawCommand::Line {
+                    x1: x_cursor,
+                    y1: underline_y,
+                    x2: x_cursor + frag.width.max(0.0),
+                    y2: underline_y,
+                    color: link_color,
+                    width: 0.5,
+                });
+            }
+            x_cursor += frag.width;
+        }
     }
 
     /// Given a sequence of per-line heights, compute (start_idx, end_idx) segment
@@ -790,42 +821,7 @@ impl<'a> Paginator<'a> {
             if baseline_y > CONTENT_BOTTOM {
                 break;
             }
-            let mut x_cursor = node.x;
-            for frag in &line.fragments {
-                let frag_font_family = if frag.code {
-                    "Courier".to_string()
-                } else {
-                    styles.font_family.clone()
-                };
-                self.push_cmd(DrawCommand::Text {
-                    content: frag.text.clone(),
-                    x: x_cursor,
-                    y: baseline_y,
-                    font_size: styles.font_size,
-                    font_family: frag_font_family,
-                    bold: bold || frag.bold,
-                    italic: (styles.font_style == FontStyle::Italic) || frag.italic,
-                    color: if frag.link.is_some() {
-                        Color::from_hex(0x1D4ED8)
-                    } else {
-                        styles.color
-                    },
-                    link_uri: frag.link.clone(),
-                    link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                });
-                if frag.link.is_some() && !frag.text.trim().is_empty() {
-                    let underline_y = baseline_y + 1.0;
-                    self.push_cmd(DrawCommand::Line {
-                        x1: x_cursor,
-                        y1: underline_y,
-                        x2: x_cursor + frag.width.max(0.0),
-                        y2: underline_y,
-                        color: Color::from_hex(0x1D4ED8),
-                        width: 0.5,
-                    });
-                }
-                x_cursor += frag.width;
-            }
+            self.push_inline_line(line, node.x, baseline_y, &styles, bold, true);
         }
 
         self.cursor_y += block_h;
@@ -1310,18 +1306,7 @@ impl<'a> Paginator<'a> {
                                 break;
                             }
                             let x_off = align_offset(effective_align, inner_w, line.width);
-                            self.push_cmd(DrawCommand::Text {
-                                content: line.text.clone(),
-                                x: cell_x + padding_left + x_off,
-                                y,
-                                font_size: cell_styles.font_size,
-                                font_family: cell_styles.font_family.clone(),
-                                bold,
-                                italic: cell_styles.font_style == FontStyle::Italic,
-                                color: cell_styles.color,
-                                link_uri: None,
-                                link_width_pt: None,
-                            });
+                            self.push_text_line(line, cell_x + padding_left + x_off, y, &cell_styles, bold);
                         }
                     }
                     CellLines::Inline(lines) => {
@@ -1333,32 +1318,8 @@ impl<'a> Paginator<'a> {
                                 break;
                             }
                             let x_off = align_offset(effective_align, inner_w, line.width);
-                            let mut x_cursor = cell_x + padding_left + x_off;
-                            for frag in &line.fragments {
-                                let font_family = if frag.code {
-                                    "Courier".to_string()
-                                } else {
-                                    cell_styles.font_family.clone()
-                                };
-                                self.push_cmd(DrawCommand::Text {
-                                    content: frag.text.clone(),
-                                    x: x_cursor,
-                                    y: baseline_y,
-                                    font_size: cell_styles.font_size,
-                                    font_family,
-                                    bold: bold || frag.bold,
-                                    italic: (cell_styles.font_style == FontStyle::Italic)
-                                        || frag.italic,
-                                    color: if frag.link.is_some() {
-                                        Color::from_hex(0x1D4ED8)
-                                    } else {
-                                        cell_styles.color
-                                    },
-                                    link_uri: frag.link.clone(),
-                                    link_width_pt: frag.link.as_ref().map(|_| frag.width),
-                                });
-                                x_cursor += frag.width;
-                            }
+                            let x = cell_x + padding_left + x_off;
+                            self.push_inline_line(line, x, baseline_y, &cell_styles, bold, false);
                         }
                     }
                     CellLines::Children => {
