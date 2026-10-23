@@ -1,15 +1,14 @@
 /// Fonts and line breaking for text.
 ///
-/// Character widths use ttf-parser with real font metrics.
+/// Character widths use ttf-parser with the bundled Liberation faces (see `fonts`).
 /// Loaded once in `OnceLock` on first use.
-/// If no system font is found, falls back to a 0.55 width factor.
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 use std::sync::Arc;
 use std::collections::hash_map::DefaultHasher;
-use fontdb::{Database, Family, ID, Query, Weight, Style as FontdbStyle, Stretch};
 use rustybuzz::UnicodeBuffer;
+use super::fonts;
 use super::layout::MM_TO_PT;
 use super::styles::InlineRun;
 
@@ -73,7 +72,7 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
     let units_per_em = face.units_per_em();
     let mut advances = HashMap::with_capacity(512);
     // Cache ASCII + Latin Extended (covers German umlauts and typography)
-    for code in 32u32..1024u32 {
+    for code in (32u32..0x0530).chain(0x2000..0x2070) {
         if let Some(ch) = char::from_u32(code)
             && let Some(gid) = face.glyph_index(ch)
                 && let Some(adv) = face.glyph_hor_advance(gid) {
@@ -92,80 +91,13 @@ fn load_metrics(bold: bool) -> Option<GlyphMetrics> {
 }
 
 fn load_font_sources() -> FontSources {
-    let mut db = Database::new();
-    db.load_system_fonts();
-
-    let regular_id = query_font_id(&db, Weight::NORMAL);
-    let bold_id = query_font_id(&db, Weight::BOLD);
-
-    let regular = regular_id.and_then(|id| extract_font_source(&db, id));
-    let bold = match (bold_id, regular_id, regular.as_ref()) {
-        (Some(bold), Some(reg), Some(regular_source)) if bold == reg => Some(FontSource {
-            data: Arc::clone(&regular_source.data),
-            face_index: regular_source.face_index,
-        }),
-        (Some(id), _, _) => extract_font_source(&db, id),
-        _ => None,
-    };
-
-    let mono_reg_id = query_mono_font_id(&db, Weight::NORMAL);
-    let mono_bold_id = query_mono_font_id(&db, Weight::BOLD);
-    let mono_regular = mono_reg_id.and_then(|id| extract_font_source(&db, id));
-    let mono_bold = match (mono_bold_id, mono_reg_id, mono_regular.as_ref()) {
-        (Some(bold_m), Some(reg_m), Some(mreg_src)) if bold_m == reg_m => Some(FontSource {
-            data: Arc::clone(&mreg_src.data),
-            face_index: mreg_src.face_index,
-        }),
-        (Some(id), _, _) => extract_font_source(&db, id),
-        _ => mono_regular.clone(),
-    };
-
+    let source = |slot| Some(FontSource { data: Arc::from(fonts::data(slot)), face_index: 0 });
     FontSources {
-        regular,
-        bold,
-        mono_regular,
-        mono_bold,
+        regular: source(fonts::slot(false, false, false)),
+        bold: source(fonts::slot(false, true, false)),
+        mono_regular: source(fonts::slot(true, false, false)),
+        mono_bold: source(fonts::slot(true, true, false)),
     }
-}
-
-fn query_font_id(db: &Database, weight: Weight) -> Option<ID> {
-    db.query(&Query {
-        families: &[
-            Family::Name("Helvetica Neue"),
-            Family::Name("Helvetica"),
-            Family::Name("Arial"),
-            Family::SansSerif,
-        ],
-        weight,
-        style: FontdbStyle::Normal,
-        stretch: Stretch::Normal,
-    })
-}
-
-fn query_mono_font_id(db: &Database, weight: Weight) -> Option<ID> {
-    db.query(&Query {
-        families: &[
-            Family::Name("Menlo"),
-            Family::Name("Monaco"),
-            Family::Name("Courier New"),
-            Family::Name("Courier"),
-            Family::Monospace,
-        ],
-        weight,
-        style: FontdbStyle::Normal,
-        stretch: Stretch::Normal,
-    })
-}
-
-fn extract_font_source(db: &Database, id: ID) -> Option<FontSource> {
-    let mut result: Option<FontSource> = None;
-    db.with_face_data(id, |data, face_idx| {
-        result = Some(FontSource {
-            data: Arc::from(data.to_vec()),
-            face_index: face_idx,
-        });
-    });
-    result
 }
 
 fn get_metrics(bold: bool) -> Option<&'static GlyphMetrics> {
@@ -199,7 +131,7 @@ fn load_metrics_mono(bold: bool) -> Option<GlyphMetrics> {
     let face = ttf_parser::Face::parse(source.data.as_ref(), source.face_index).ok()?;
     let units_per_em = face.units_per_em();
     let mut advances = HashMap::with_capacity(512);
-    for code in 32u32..1024u32 {
+    for code in (32u32..0x0530).chain(0x2000..0x2070) {
         if let Some(ch) = char::from_u32(code)
             && let Some(gid) = face.glyph_index(ch)
                 && let Some(adv) = face.glyph_hor_advance(gid) {

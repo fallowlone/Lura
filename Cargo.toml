@@ -15,7 +15,6 @@ wgpu-preview = [
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-fontdb = "0.23.0"
 id-arena = "2.3.0"
 pdf-writer = "0.14.0"
 taffy = "0.10.0"
@@ -29,6 +28,7 @@ pollster = { version = "0.4", optional = true }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 glyphon = { version = "0.10", optional = true }
 bytemuck = { version = "1.14", optional = true, features = ["derive"] }
+subsetter = { version = "0.2.6", default-features = false }
 
 [lib]
 name = "lura"

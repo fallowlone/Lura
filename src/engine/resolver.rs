@@ -5,6 +5,7 @@
 /// then explicit block attrs.
 use crate::parser::ast::{Block, Content, Document, InlineNode, NodeId as AstNodeId, Value};
 use super::arena::DocumentArena;
+use super::fonts::is_monospace_family;
 use super::grid_tracks::parse_grid_columns_value;
 use super::styles::{
     BoxContent, BoxKind, Color, Display, EdgeInsets, FloatMode, FontStyle, FontWeight, InlineRun,
@@ -330,11 +331,6 @@ fn apply_attrs(styles: &mut ResolvedStyles, block: &Block, kind: &BoxKind) {
             _ => {}
         }
     }
-}
-
-fn is_monospace_family(family: &str) -> bool {
-    let l = family.to_ascii_lowercase();
-    l.contains("courier") || l.contains("mono")
 }
 
 fn value_to_f32(value: &Value) -> Option<f32> {
