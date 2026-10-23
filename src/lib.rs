@@ -68,7 +68,7 @@ fn guard_panics(render: impl FnOnce() -> LuraPdfResult) -> LuraPdfResult {
 fn parse_and_render_pdf(content: &str) -> LuraPdfResult {
     let mut lex_engine = lexer::Lexer::new(content);
     let tokens = lex_engine.tokenize();
-    let mut parse_engine = parser::Parser::new(tokens);
+    let mut parse_engine = parser::Parser::new(tokens).with_positions(lex_engine.token_positions());
 
     let mut doc = match parse_engine.parse() {
         Ok(d) => d,

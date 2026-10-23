@@ -25,13 +25,16 @@ fn main() {
             let input = read_file(&file);
             let mut lexer = Lexer::new(&input);
             let tokens = lexer.tokenize();
-            let mut parser = Parser::new(tokens);
+            let mut parser = Parser::new(tokens).with_positions(lexer.token_positions());
             match parser.parse() {
                 Ok(doc) => {
                     let dups = lura::parser::id::duplicate_explicit_ids(&doc);
                     if !dups.is_empty() {
                         eprintln!("error: duplicate block ids: {}", dups.join(", "));
                         process::exit(1);
+                    }
+                    for kind in engine::resolver::unknown_blocks(&doc) {
+                        eprintln!("warning: unknown block '{kind}'");
                     }
                     for (kind, key) in engine::resolver::unknown_attributes(&doc) {
                         eprintln!("warning: {kind}: unknown attribute '{key}' has no effect");
@@ -223,7 +226,7 @@ fn load_document(path: &std::path::Path) -> lura::parser::ast::Document {
     let input = read_file(path);
     let mut lexer = Lexer::new(&input);
     let tokens = lexer.tokenize();
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens).with_positions(lexer.token_positions());
     let doc = parser.parse().unwrap_or_else(|e| {
         eprintln!("error: {e}");
         process::exit(1);

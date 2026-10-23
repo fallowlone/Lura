@@ -1,6 +1,6 @@
 pub mod token;
 
-pub use token::Token;
+pub use token::{Pos, Token};
 
 #[cfg(test)]
 mod tests;
@@ -21,6 +21,8 @@ pub struct Lexer {
     last_block: String, // most recent block name, to tell CODE from other blocks
     in_bracket: bool,   // inside [id], so its ident is not a block name
     block_stack: Vec<bool>, // per open '(': is it a CODE block
+    token_start: usize,     // char offset where the token being read begins
+    starts: Vec<usize>,     // start offset of every token returned by `tokenize`
 }
 
 impl Lexer {
@@ -34,6 +36,8 @@ impl Lexer {
             last_block: String::new(),
             in_bracket: false,
             block_stack: Vec::new(),
+            token_start: 0,
+            starts: Vec::new(),
         }
     }
 
@@ -42,6 +46,7 @@ impl Lexer {
         loop {
             let token = self.next_token();
             let is_eof = token == Token::Eof;
+            self.starts.push(self.token_start.min(self.input.len()));
             tokens.push(token);
             if is_eof {
                 break;
@@ -185,6 +190,25 @@ impl Lexer {
         Token::Text(s.trim().to_string())
     }
 
+    /// Source position of every token returned by the last `tokenize` call (same length).
+    pub fn token_positions(&self) -> Vec<Pos> {
+        let mut out = Vec::with_capacity(self.starts.len());
+        let (mut line, mut column, mut at) = (1u32, 1u32, 0usize);
+        for &start in &self.starts {
+            while at < start {
+                if self.input[at] == '\n' {
+                    line += 1;
+                    column = 1;
+                } else {
+                    column += 1;
+                }
+                at += 1;
+            }
+            out.push(Pos { line, column });
+        }
+        out
+    }
+
     fn in_code(&self) -> bool {
         self.block_stack.iter().any(|&is_code| is_code)
     }
@@ -194,6 +218,7 @@ impl Lexer {
         if !(self.mode == Mode::Content && self.in_code()) {
             self.skip_whitespace();
         }
+        self.token_start = self.pos;
 
         match self.mode {
             Mode::Content => {
